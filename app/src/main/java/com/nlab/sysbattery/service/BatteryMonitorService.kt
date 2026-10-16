@@ -604,6 +604,7 @@ class BatteryMonitorService : Service() {
         accumulateScreenTime()
         persistCounters()
         persistRateSamples()
+        runCatching { historyStore.close() }
         scope.cancel()
         super.onDestroy()
     }
