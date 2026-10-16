@@ -29,6 +29,29 @@ class BatteryStatsCalculatorTest {
     }
 
     @Test
+    fun unavailableCurrentDoesNotPreventPercentageRateCalculation() {
+        val noCurrent = sample(1_800_000L, 39, 2_000_000L).copy(currentMicroAmps = null)
+        val result = BatteryStatsCalculator.calculate(
+            previous = BatteryStatsCalculator.PreviousSample(600_000L, 40, null, 2_100_000L),
+            current = noCurrent,
+            isCharging = false
+        )
+        assertEquals(6.0, result.batteryPercentPerHour!!, 0.001)
+        assertNull(result.currentMilliAmpsMagnitude)
+    }
+
+    @Test
+    fun equalBatteryLevelDoesNotInventPercentageDrain() {
+        val result = BatteryStatsCalculator.calculate(
+            previous = BatteryStatsCalculator.PreviousSample(0L, 45, null, null),
+            current = sample(600_000L, 45),
+            isCharging = false
+        )
+        assertNull(result.batteryPercentPerHour)
+        assertEquals(BatteryStatsCalculator.Direction.DISCHARGING, result.direction)
+    }
+
+    @Test
     fun dischargeRateUsesOnlyPositivePercentageDrop() {
         val result = BatteryStatsCalculator.calculate(
             previous = BatteryStatsCalculator.PreviousSample(0L, 45, -500_000L, 2_200_000L),
