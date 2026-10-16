@@ -2,10 +2,13 @@ package com.nlab.sysbattery
 
 import android.Manifest
 import android.content.Intent
+import android.content.ComponentName
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -45,6 +48,8 @@ import com.nlab.sysbattery.data.AdvancedBatteryStatsReader
 import com.nlab.sysbattery.data.RootAccessReader
 import com.nlab.sysbattery.data.ShizukuBatteryStatsReader
 import com.nlab.sysbattery.data.RootBatteryStatsParser
+import com.nlab.sysbattery.data.shizuku.BatteryStatsUserService
+import com.nlab.sysbattery.data.shizuku.IBatteryStatsUserService
 import com.nlab.sysbattery.domain.BatteryStatsCalculator
 import com.nlab.sysbattery.service.BatteryMonitorService
 import java.util.Locale
@@ -55,6 +60,35 @@ class MainActivity : ComponentActivity() {
     private var shizukuFindings by mutableStateOf<List<RootBatteryStatsParser.Finding>>(emptyList())
     private var shizukuLoading by mutableStateOf(false)
     private var shizukuAuthorized by mutableStateOf(false)
+    private var shizukuServiceBinding = false
+    private var shizukuService: IBatteryStatsUserService? = null
+    private val shizukuUserServiceArgs by lazy {
+        Shizuku.UserServiceArgs(ComponentName(this, BatteryStatsUserService::class.java))
+            .daemon(false)
+            .tag("sysbattery-battery-stats")
+            .version(1)
+    }
+    private val shizukuServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            shizukuService = service?.let { IBatteryStatsUserService.Stub.asInterface(it) }
+            shizukuServiceBinding = false
+            runOnUiThread {
+                shizukuStatus = if (shizukuService != null) {
+                    "Authorized · BatteryStats service connected"
+                } else {
+                    "Authorized · could not connect to BatteryStats service"
+                }
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            shizukuService = null
+            shizukuServiceBinding = false
+            runOnUiThread {
+                shizukuStatus = if (shizukuAuthorized) "Authorized · reconnect required" else "Shizuku disconnected"
+            }
+        }
+    }
     private val shizukuRequestCode = 0x5B24
     private val shizukuPermissionListener = object : Shizuku.OnRequestPermissionResultListener {
         override fun onRequestPermissionResult(requestCode: Int, grantResult: Int) {
@@ -62,8 +96,9 @@ class MainActivity : ComponentActivity() {
             Shizuku.removeRequestPermissionResultListener(this)
             runOnUiThread {
                 shizukuAuthorized = grantResult == PackageManager.PERMISSION_GRANTED
-                shizukuStatus = if (shizukuAuthorized) "Authorized · advanced statistics available"
+                shizukuStatus = if (shizukuAuthorized) "Authorized · connecting to BatteryStats service"
                     else "Permission denied · standard monitoring remains available"
+                if (shizukuAuthorized) bindShizukuService()
             }
         }
     }
@@ -138,7 +173,9 @@ class MainActivity : ComponentActivity() {
                             var shizukuError: String? = null
                             if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
                                 try {
-                                    findings = ShizukuBatteryStatsReader().read().findings
+                                    val service = shizukuService
+                                    if (service != null) findings = ShizukuBatteryStatsReader(service).read().findings
+                                    else shizukuError = "Shizuku service is not connected yet. Tap Enable Shizuku access again."
                                 } catch (e: Exception) {
                                     shizukuError = e.message ?: e.javaClass.simpleName
                                 }
@@ -188,10 +225,27 @@ class MainActivity : ComponentActivity() {
         shizukuAuthorized = Shizuku.pingBinder() &&
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         shizukuStatus = when {
-            shizukuAuthorized -> "Authorized · advanced statistics available"
+            shizukuService != null -> "Authorized · BatteryStats service connected"
+            shizukuServiceBinding -> "Authorized · connecting to BatteryStats service"
+            shizukuAuthorized -> "Authorized · connecting to BatteryStats service"
             Shizuku.pingBinder() -> "Shizuku running · permission needed"
             available -> "Shizuku installed · service not running"
             else -> "Shizuku not installed · optional"
+        }
+        if (shizukuAuthorized && shizukuService == null) bindShizukuService()
+    }
+
+    private fun bindShizukuService() {
+        if (!Shizuku.pingBinder() ||
+            Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED ||
+            shizukuService != null || shizukuServiceBinding
+        ) return
+        shizukuServiceBinding = true
+        try {
+            Shizuku.bindUserService(shizukuUserServiceArgs, shizukuServiceConnection)
+        } catch (e: Exception) {
+            shizukuServiceBinding = false
+            shizukuStatus = "Could not bind Shizuku service: ${e.javaClass.simpleName}"
         }
     }
 
@@ -209,7 +263,8 @@ class MainActivity : ComponentActivity() {
         }
         if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
             shizukuAuthorized = true
-            shizukuStatus = "Authorized · advanced statistics available"
+            shizukuStatus = "Authorized · connecting to BatteryStats service"
+            bindShizukuService()
             return
         }
         Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
