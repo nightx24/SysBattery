@@ -4,8 +4,6 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Build
 import android.os.BatteryStatsManager
-import android.os.BatteryUsageStats
-import android.os.Process
 import java.util.concurrent.TimeUnit
 
 /**
@@ -52,17 +50,30 @@ class AdvancedBatteryStatsReader(context: Context) {
         return try {
             val manager = appContext.getSystemService(BatteryStatsManager::class.java)
                 ?: return Triple(null, emptyList(), "BatteryStatsManager unavailable.")
-            val stats: BatteryUsageStats = manager.getBatteryUsageStats()
-            val apps = stats.uidBatteryConsumers.mapNotNull { consumer ->
-                val uid = consumer.uid
-                val mah = consumer.consumedPower
-                if (!mah.isFinite() || mah < 0.0 || uid == Process.SYSTEM_UID) null
-                else AppEnergy(uid, appContext.packageManager.getPackagesForUid(uid)?.firstOrNull(), mah)
+            // Reflection keeps this reader tolerant of API signature differences across SDK stubs.
+            val stats = manager.javaClass.getMethod("getBatteryUsageStats").invoke(manager)
+                ?: return Triple(null, emptyList(), "Android returned no battery usage report.")
+            val total = (stats.javaClass.methods.firstOrNull {
+                it.name == "getConsumedPower" && it.parameterCount == 0
+            }?.invoke(stats) as? Number)?.toDouble()
+            val consumers = stats.javaClass.methods.firstOrNull {
+                it.name == "getUidBatteryConsumers" && it.parameterCount == 0
+            }?.invoke(stats) as? Iterable<*>
+            val apps = consumers.orEmpty().mapNotNull { consumer ->
+                if (consumer == null) return@mapNotNull null
+                val uid = (consumer.javaClass.methods.firstOrNull {
+                    it.name == "getUid" && it.parameterCount == 0
+                }?.invoke(consumer) as? Number)?.toInt() ?: return@mapNotNull null
+                val power = (consumer.javaClass.methods.firstOrNull {
+                    it.name == "getConsumedPower" && it.parameterCount == 0
+                }?.invoke(consumer) as? Number)?.toDouble() ?: return@mapNotNull null
+                if (!power.isFinite() || power < 0.0 || uid < 0) null
+                else AppEnergy(uid, appContext.packageManager.getPackagesForUid(uid)?.firstOrNull(), power)
             }.sortedByDescending { it.consumedMah }
-            Triple(stats.consumedPower.takeIf { it.isFinite() && it >= 0.0 }, apps, null)
+            Triple(total?.takeIf { it.isFinite() && it >= 0.0 }, apps, null)
         } catch (_: SecurityException) {
             Triple(null, emptyList(), "Android denied BATTERY_STATS. Grant it with ADB if this OS permits it.")
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             Triple(null, emptyList(), "Battery statistics unavailable: ${e.javaClass.simpleName}")
         }
     }
