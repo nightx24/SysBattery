@@ -37,6 +37,8 @@ class BatteryMonitorService : Service() {
     private lateinit var reader: BatterySysfsReader
     private var previousLevel: Int? = null
     private var previousTimestamp = 0L
+    // Kept only for the current service session; the first sample establishes a baseline.
+    private var previousChargeCounterMicroAmpHours: Long? = null
     private var monitorJob: Job? = null
     private var screenOnMillis = 0L
     private var screenOffMillis = 0L
@@ -209,21 +211,53 @@ class BatteryMonitorService : Service() {
         }
 
         if (charging == false && elapsed > 0L) {
-            // Prefer current×voltage→capacity-based rate when calibrated capacity is available.
-            // Only fall back to integer level drops when no current-based estimate exists.
-            val currentBasedRate = rates.batteryPercentPerHour
-            if (currentBasedRate != null && currentBasedRate.isFinite() && currentBasedRate in 0.0..500.0) {
-                activeDrainPercent += currentBasedRate * onElapsed / 3_600_000.0
-                idleDrainPercent += currentBasedRate * offElapsed / 3_600_000.0
-            } else if (oldLevel != null && newLevel != null && oldLevel > newLevel &&
-                oldLevel - newLevel <= 10 && trackedElapsed > 0L) {
-                val drop = (oldLevel - newLevel).toDouble()
-                activeDrainPercent += drop * onElapsed / trackedElapsed
-                idleDrainPercent += drop * offElapsed / trackedElapsed
+            /*
+             * Attribute actual remaining-charge-counter loss to the screen state measured
+             * during this sampling interval. The rolling current-derived rate can include
+             * both screen-on and screen-off samples, so using it for each state separately
+             * creates a misleading split. Prefer the counter delta when both endpoints and
+             * a plausible full-capacity estimate are available.
+             */
+            val previousCounter = previousChargeCounterMicroAmpHours
+            val currentCounter = sample.chargeCounterMicroAmpHours
+            val capacityUah = (sample.fullChargeCapacityMicroAmpHours
+                ?: sample.estimatedFullChargeCapacityMicroAmpHours)
+                ?.takeIf { it in 100_000L..30_000_000L }
+            val counterDeltaUah = if (previousCounter != null && currentCounter != null) {
+                previousCounter - currentCounter
+            } else null
+            val counterBasedLossPercent = if (
+                counterDeltaUah != null && counterDeltaUah in 1L..100_000L &&
+                capacityUah != null && trackedElapsed > 0L
+            ) {
+                (counterDeltaUah.toDouble() / capacityUah.toDouble() * 100.0)
+                    .takeIf { it.isFinite() && it in 0.0..20.0 }
+            } else null
+
+            if (counterBasedLossPercent != null) {
+                activeDrainPercent += counterBasedLossPercent * onElapsed / trackedElapsed
+                idleDrainPercent += counterBasedLossPercent * offElapsed / trackedElapsed
+            } else {
+                // Fallback for devices that hide charge-counter/capacity telemetry.
+                // This is a whole-window estimate, not a claim of per-state current accuracy.
+                val currentBasedRate = rates.batteryPercentPerHour
+                if (currentBasedRate != null && currentBasedRate.isFinite() &&
+                    currentBasedRate in 0.0..500.0 && trackedElapsed > 0L) {
+                    val intervalLoss = currentBasedRate * trackedElapsed / 3_600_000.0
+                    activeDrainPercent += intervalLoss * onElapsed / trackedElapsed
+                    idleDrainPercent += intervalLoss * offElapsed / trackedElapsed
+                } else if (oldLevel != null && newLevel != null && oldLevel > newLevel &&
+                    oldLevel - newLevel <= 10 && trackedElapsed > 0L) {
+                    val drop = (oldLevel - newLevel).toDouble()
+                    activeDrainPercent += drop * onElapsed / trackedElapsed
+                    idleDrainPercent += drop * offElapsed / trackedElapsed
+                }
             }
             activeDrainMillis += onElapsed
             idleDrainMillis += offElapsed
         }
+        // Advance the baseline even while charging, so a later discharge doesn't include charge.
+        previousChargeCounterMicroAmpHours = sample.chargeCounterMicroAmpHours
 
         mutableState.value = MonitorState(sample, rates)
         runCatching {
