@@ -36,7 +36,8 @@ class BatteryMonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var reader: BatterySysfsReader
     private var previousLevel: Int? = null
-    private var previousTimestamp = 0L
+    // Monotonic clock baseline; wall-clock changes must not create negative/huge intervals.
+    private var previousSampleElapsedRealtime = 0L
     // Kept only for the current service session; the first sample establishes a baseline.
     private var previousChargeCounterMicroAmpHours: Long? = null
     private var monitorJob: Job? = null
@@ -191,9 +192,10 @@ class BatteryMonitorService : Service() {
         persistRateSamples()
         val rates = BatteryStatsCalculator.calculateWindowed(rateSamples, sample, charging)
 
-        val nowWall = sample.timestampMillis
         val nowElapsed = SystemClock.elapsedRealtime()
-        val elapsed = if (previousTimestamp > 0L) (nowWall - previousTimestamp).coerceAtLeast(0L) else 0L
+        val elapsed = if (previousSampleElapsedRealtime > 0L) {
+            (nowElapsed - previousSampleElapsedRealtime).coerceAtLeast(0L)
+        } else 0L
         val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
         val (onElapsed, offElapsed) = updateAndMeasureScreenTime(interactive, nowElapsed)
         val trackedElapsed = onElapsed + offElapsed
@@ -266,7 +268,7 @@ class BatteryMonitorService : Service() {
             notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
         }.onFailure { DiagnosticLogger.error("Battery notification update failed", it) }
         previousLevel = newLevel
-        previousTimestamp = nowWall
+        previousSampleElapsedRealtime = nowElapsed
         persistCounters()
     }
 
@@ -454,9 +456,7 @@ class BatteryMonitorService : Service() {
                 ?: sample?.currentMilliAmpsSigned?.let { kotlin.math.abs(it) }
                     ?.takeIf { it.isFinite() && it in 1.0..20_000.0 }
         } else null
-        val signedCurrent = current?.let { if (charging == false) -it else it }
         val powerWatts = if (showChargingPower) rates?.powerWattsMagnitude else null
-        val signedPower = powerWatts?.let { if (charging == false) -it else it }
         val mode = when (charging) {
             true -> "Charging"
             false -> "Discharging"
@@ -492,8 +492,6 @@ class BatteryMonitorService : Service() {
             }
         }
         val totalSessionMillis = (shownOnMillis + shownOffMillis).coerceAtLeast(0L)
-        val screenOnShare = if (totalSessionMillis > 0L) shownOnMillis * 100.0 / totalSessionMillis else 0.0
-        val screenOffShare = if (totalSessionMillis > 0L) shownOffMillis * 100.0 / totalSessionMillis else 0.0
         val activeLoss = activeDrainPercent.coerceAtLeast(0.0)
         val idleLoss = idleDrainPercent.coerceAtLeast(0.0)
         val elapsedRealtime = SystemClock.elapsedRealtime().coerceAtLeast(0L)
