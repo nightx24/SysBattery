@@ -36,7 +36,7 @@ class BatteryStatsCalculatorTest {
             current = noCurrent,
             isCharging = false
         )
-        assertEquals(6.0, result.batteryPercentPerHour!!, 0.001)
+        assertEquals(3.0, result.batteryPercentPerHour!!, 0.001)
         assertNull(result.currentMilliAmpsMagnitude)
     }
 
@@ -65,6 +65,21 @@ class BatteryStatsCalculatorTest {
         assertEquals(BatteryStatsCalculator.Direction.DISCHARGING, result.direction)
         org.junit.Assert.assertNotNull(result.currentMilliAmpsMagnitude)
         org.junit.Assert.assertNotNull(result.powerWattsMagnitude)
+    }
+
+    @Test
+    fun rollingCurrentAndCapacityProducePercentRateBeforeLevelChanges() {
+        val current = sample(60_000L, 50, 2_000_000L).copy(
+            fullChargeCapacityMicroAmpHours = 5_000_000L
+        )
+        val samples = listOf(
+            BatteryStatsCalculator.TimedSample(0L, 50, -500_000L, 2_500_000L),
+            BatteryStatsCalculator.TimedSample(20_000L, 50, -510_000L, 2_490_000L),
+            BatteryStatsCalculator.TimedSample(40_000L, 50, -490_000L, 2_480_000L),
+            BatteryStatsCalculator.TimedSample(60_000L, 50, -500_000L, 2_470_000L)
+        )
+        val result = BatteryStatsCalculator.calculateWindowed(samples, current, false)
+        assertEquals(10.0, result.batteryPercentPerHour!!, 0.1)
     }
 
     @Test
