@@ -26,8 +26,8 @@ class RootAccessReader {
             return RootReport(false, identity.ifBlank { "su unavailable or root denied" }, null, null,
                 identityResult.error ?: "Root access was not granted. Install/configure Magisk or another su provider and approve the prompt.")
         }
-        val battery = runRootCommand("dumpsys batterystats --charged")
-        val power = runRootCommand("dumpsys power")
+        val battery = runRootCommand("dumpsys batterystats --charged | head -c 24000")
+        val power = runRootCommand("dumpsys power | head -c 12000")
         return RootReport(
             rooted = true,
             identity = identity,
