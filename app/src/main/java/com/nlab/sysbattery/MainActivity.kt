@@ -384,7 +384,7 @@ private fun BatteryDashboard(
     val voltage = sample?.voltageMilliVolts?.let { "$it mV" } ?: "—"
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var selectedOptionsPage by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(selectedTab) {
+    LaunchedEffect(selectedTab, usageAccessGranted) {
         if (selectedTab == 1) onRefreshAdvanced()
     }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
