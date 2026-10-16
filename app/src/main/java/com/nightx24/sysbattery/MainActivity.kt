@@ -1,4 +1,4 @@
-package com.nightx24.sysbattery
+package com.nlab.sysbattery
 
 import android.Manifest
 import androidx.activity.ComponentActivity
@@ -13,7 +13,7 @@ import android.widget.TextView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.nightx24.sysbattery.service.BatteryMonitorService
+import com.nlab.sysbattery.service.BatteryMonitorService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
