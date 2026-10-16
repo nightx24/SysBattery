@@ -524,7 +524,7 @@ private fun BatteryDashboard(
                 )
             }
             }
-            if (selectedTab == 2 && selectedOptionsPage == 1) {
+            if (selectedTab == 2) {
             GlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -556,7 +556,7 @@ private fun BatteryDashboard(
                 }
             }
             }
-            if (selectedTab == 2 && selectedOptionsPage == 1) {
+            if (selectedTab == 2) {
             GlassCard {
                 Text("Root access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -600,7 +600,7 @@ private fun BatteryDashboard(
                 Text("Source: ${sample?.source ?: "waiting for first sample"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             }
-            if (selectedTab == 2 && selectedOptionsPage == 0) {
+            if (selectedTab == 2) {
             BatteryMonitorSettings(
                 prefs = settingsPrefs,
                 running = running,
