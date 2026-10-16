@@ -3,10 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 android {
-    namespace = "com.nightx24.sysbattery"
+    namespace = "com.nlab.sysbattery"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.nightx24.sysbattery"
+        applicationId = "com.nlab.sysbattery"
         minSdk = 23
         targetSdk = 34
         versionCode = 1
