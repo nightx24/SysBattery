@@ -624,6 +624,22 @@ private fun BatteryDashboard(
             if (selectedTab == 2) {
                 Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Text("Permissions and diagnostics", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                GlassCard {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                            Icon(Icons.Rounded.Tune, contentDescription = null, modifier = Modifier.padding(10.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Access overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Optional features and permissions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                    AccessStatusRow("App usage", if (usageAccessGranted) "Enabled" else "Optional", usageAccessGranted)
+                    AccessStatusRow("Shizuku", if (shizukuAuthorized) "Authorized" else "Not connected", shizukuAuthorized)
+                    AccessStatusRow("Root diagnostics", if (rootReport?.rooted == true) "Available" else "Optional", rootReport?.rooted == true)
+                    Text("Basic battery monitoring works without these optional access methods.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             if (selectedTab == 2) {
             GlassCard {
@@ -876,6 +892,27 @@ private fun BatteryDashboard(
             }
         }
     }
+    }
+}
+
+@Composable
+private fun AccessStatusRow(label: String, status: String, enabled: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(8.dp).background(
+                if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                CircleShape
+            )
+        )
+        Text(label, modifier = Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            status,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
