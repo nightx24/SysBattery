@@ -184,6 +184,7 @@ private fun BatteryDashboard(
         else String.format(Locale.getDefault(), "%.1f °C", celsius)
     } ?: "—"
     val voltage = sample?.voltageMilliVolts?.let { "$it mV" } ?: "—"
+    var selectedTab by remember { mutableIntStateOf(0) }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
@@ -205,6 +206,12 @@ private fun BatteryDashboard(
                     Text(if (running) "LIVE" else "PAUSED", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
             }
+            PrimaryTabRow(selectedTabIndex = selectedTab, modifier = Modifier.fillMaxWidth()) {
+                listOf("Status", "App usage", "Options").forEachIndexed { index, label ->
+                    Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(label) })
+                }
+            }
+            if (selectedTab == 0) {
             GlassCard {
                 Text("BATTERY LEVEL", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, letterSpacing = 1.6.sp)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -251,6 +258,8 @@ private fun BatteryDashboard(
                     Text("Allow background activity")
                 }
             }
+            }
+            if (selectedTab == 2) {
             GlassCard {
                 Text("OEM background settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -258,6 +267,8 @@ private fun BatteryDashboard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium
                 )
             }
+            }
+            if (selectedTab == 1) {
             GlassCard {
                 Text("Advanced battery statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -296,6 +307,8 @@ private fun BatteryDashboard(
                     report.usageStatsError?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 }
             }
+            }
+            if (selectedTab == 2) {
             GlassCard {
                 Text("Root access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -338,6 +351,8 @@ private fun BatteryDashboard(
                 }
                 Text("Source: ${sample?.source ?: "waiting for first sample"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            }
+            if (selectedTab == 2) {
             BatteryMonitorSettings(
                 prefs = settingsPrefs,
                 running = running,
@@ -346,7 +361,8 @@ private fun BatteryDashboard(
                 onPreferencesChanged = onPreferencesChanged,
                 preferencesRevision = preferencesRevision
             )
-            Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (selectedTab == 0) Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
