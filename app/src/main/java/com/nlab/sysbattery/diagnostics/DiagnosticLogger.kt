@@ -11,7 +11,7 @@ import java.util.Locale
 
 /**
  * Small, local-only diagnostic log. No data is uploaded automatically.
- * Logs rotate at 512 KiB and exports redact common Android identifiers.
+ * Logs rotate at 512 KiB and can be exported by the user.
  */
 object DiagnosticLogger {
     private const val FILE_NAME = "sysbattery.log"
