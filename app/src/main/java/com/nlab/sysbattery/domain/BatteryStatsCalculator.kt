@@ -125,8 +125,22 @@ object BatteryStatsCalculator {
             currentMa != null && fullCapacityMah != null && fullCapacityMah > 0.0 &&
             validCurrentSamples.size >= MIN_CURRENT_SAMPLES && currentSpan >= MIN_CURRENT_SPAN_MS
         ) currentMa * 100.0 / fullCapacityMah else null
-        val pctRate = currentDerivedRate?.takeIf { it in 0.0..MAX_PLAUSIBLE_RATE }
-            ?: levelRate?.takeIf { it in 0.0..MAX_PLAUSIBLE_RATE }
+        // Battery Guru persists charge-counter samples and can estimate discharge
+        // before the rounded battery percentage changes. Use the counter delta across
+        // the real sample window as a fallback when instantaneous current is unavailable.
+        val counterDerivedRate = if (
+            direction == Direction.DISCHARGING &&
+            first?.chargeCounterMicroAmpHours != null &&
+            last?.chargeCounterMicroAmpHours != null &&
+            span >= MIN_CURRENT_SPAN_MS &&
+            fullCapacityMah != null && fullCapacityMah > 0.0
+        ) {
+            val dischargedMah = (first.chargeCounterMicroAmpHours - last.chargeCounterMicroAmpHours) / 1_000.0
+            if (dischargedMah > 0.0) dischargedMah * 100.0 / fullCapacityMah * 3_600_000.0 / span else null
+        } else null
+        val pctRate = currentDerivedRate?.takeIf { it.isFinite() && it in 0.0..MAX_PLAUSIBLE_RATE }
+            ?: counterDerivedRate?.takeIf { it.isFinite() && it in 0.0..MAX_PLAUSIBLE_RATE }
+            ?: levelRate?.takeIf { it.isFinite() && it in 0.0..MAX_PLAUSIBLE_RATE }
         val rate = pctRate
         val integratedMah = if (currentMa != null && span > 0L && direction == Direction.DISCHARGING) {
             currentMa * span / 3_600_000.0
