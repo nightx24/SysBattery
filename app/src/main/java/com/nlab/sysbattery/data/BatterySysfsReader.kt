@@ -8,6 +8,7 @@ import android.os.Build
 import java.io.File
 import java.io.IOException
 import java.util.Locale
+import kotlin.math.abs
 
 /**
  * Reads battery telemetry using Android's public API first and read-only sysfs fallbacks.
@@ -29,6 +30,7 @@ class BatterySysfsReader(context: Context) {
         val cycleCount: Int? = null,
         val status: Int? = null,
         val fullChargeCapacityMicroAmpHours: Long? = null,
+        val estimatedFullChargeCapacityMicroAmpHours: Long? = null,
         val designCapacityMicroAmpHours: Long? = null,
         val source: String
     ) {
@@ -74,16 +76,34 @@ class BatterySysfsReader(context: Context) {
                 "/sys/class/power_supply/battery/charge_counter",
                 "/sys/class/power_supply/bms/charge_counter"
             ))?.takeIf { it > 0L }
-        val fullChargeCapacity = readSysfs(listOf("/sys/class/power_supply/battery/charge_full", "/sys/class/power_supply/bms/charge_full"))?.takeIf { it > 0L }
-        val designCapacity = readSysfs(listOf("/sys/class/power_supply/battery/charge_full_design", "/sys/class/power_supply/bms/charge_full_design"))?.takeIf { it > 0L }
+        val fullChargeCapacity = readSysfs(listOf(
+            "/sys/class/power_supply/battery/charge_full",
+            "/sys/class/power_supply/bms/charge_full"
+        ))?.takeIf { it > 0L }
+        val designCapacity = readSysfs(listOf(
+            "/sys/class/power_supply/battery/charge_full_design",
+            "/sys/class/power_supply/bms/charge_full_design"
+        ))?.takeIf { it > 0L }
+            ?: readSysfs(listOf("/sys/class/power_supply/battery/design_capacity", "/sys/class/power_supply/bms/design_capacity"))?.takeIf { it > 0L }
+        val systemCycleCount = if (Build.VERSION.SDK_INT >= 34) {
+            batteryIntent?.getIntExtra("android.os.extra.CYCLE_COUNT", -1)?.takeIf { it >= 0 }
+        } else null
+        val cycleCount = systemCycleCount ?: readSysfs(listOf(
+            "/sys/class/power_supply/battery/cycle_count",
+            "/sys/class/power_supply/bms/cycle_count"
+        ))?.toInt()?.takeIf { it >= 0 }
+        val estimatePrefs = appContext.getSharedPreferences("sysbattery", Context.MODE_PRIVATE)
+        if (level == 100 && chargeCounter != null && current != null &&
+            abs(current) in 1L..25_000L) {
+            estimatePrefs.edit().putLong("estimated_full_charge_capacity_uah", chargeCounter).apply()
+        }
+        val estimatedFullChargeCapacity = estimatePrefs
+            .getLong("estimated_full_charge_capacity_uah", 0L).takeIf { it > 0L }
         val temperature = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
             ?.takeIf { it in 0..1_000 }
         val health = batteryIntent?.getIntExtra(BatteryManager.EXTRA_HEALTH, -1)?.takeIf { it >= 0 }
         val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
             ?.takeIf { it >= 0 }
-        val cycleCount = if (Build.VERSION.SDK_INT >= 34) {
-            batteryIntent?.getIntExtra("android.os.extra.CYCLE_COUNT", -1)?.takeIf { it >= 0 }
-        } else null
         val sources = mutableListOf<String>()
         if (level != null) sources += "level"
         if (current != null) sources += "current"
@@ -93,6 +113,7 @@ class BatterySysfsReader(context: Context) {
         if (cycleCount != null) sources += "cycle-count"
         if (fullChargeCapacity != null) sources += "full-charge-capacity"
         if (designCapacity != null) sources += "design-capacity"
+        if (estimatedFullChargeCapacity != null) sources += "estimated-full-charge-capacity"
 
         return Snapshot(
             levelPercent = level,
@@ -104,6 +125,7 @@ class BatterySysfsReader(context: Context) {
             cycleCount = cycleCount,
             status = status,
             fullChargeCapacityMicroAmpHours = fullChargeCapacity,
+            estimatedFullChargeCapacityMicroAmpHours = estimatedFullChargeCapacity,
             designCapacityMicroAmpHours = designCapacity,
             source = sources.joinToString(",").ifBlank { "no-readable-telemetry" }
         )
