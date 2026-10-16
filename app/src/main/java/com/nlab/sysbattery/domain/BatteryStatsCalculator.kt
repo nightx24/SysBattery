@@ -2,7 +2,6 @@ package com.nlab.sysbattery.domain
 
 import com.nlab.sysbattery.data.BatterySysfsReader
 import kotlin.math.abs
-import kotlin.math.max
 
 /**
  * Estimates battery rates from a trailing window, rather than a single percentage step.
