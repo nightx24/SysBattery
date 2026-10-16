@@ -52,12 +52,11 @@ class BatterySysfsReader(context: Context) {
             ?: readSysfs(listOf("/sys/class/power_supply/battery/capacity"))?.toInt()?.takeIf { it in 0..100 }
 
         // Android defines CURRENT_NOW and standard power-supply current nodes in microamps.
-        val current = signedProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-            ?: readSysfs(listOf(
-                "/sys/class/power_supply/battery/current_now",
-                "/sys/class/power_supply/bms/current_now",
-                "/sys/class/power_supply/battery/current_avg"
-            ))
+        val current = readSysfs(listOf(
+            "/sys/class/power_supply/battery/current_now",
+            "/sys/class/power_supply/bms/current_now",
+            "/sys/class/power_supply/battery/current_avg"
+        )) ?: signedProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
 
         val batteryVoltageMv = batteryIntent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
             ?.takeIf { it in 2_000..6_000 }?.toLong()
