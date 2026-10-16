@@ -62,3 +62,11 @@ Root access is optional. Denying it does not affect standard battery monitoring.
 - The glass effect uses translucent surfaces and gradients rather than platform-specific backdrop blur, keeping the UI compatible across Android skins.
 
 See [docs/battery_logic_spec.md](docs/battery_logic_spec.md) for evidence tags and formula assumptions.
+
+## Battery measurement accuracy notes
+
+SysBattery reads standard battery properties through `BatteryManager` and `ACTION_BATTERY_CHANGED`, with read-only sysfs fallback where Android permits it. Current and power are device-dependent: the app validates plausible current values, normalizes the displayed sign using Android's charging status, and displays power from current × battery-cell voltage. The displayed drain rate uses a persisted, direction-specific rolling window; it needs enough observations before reporting a percentage-per-hour estimate.
+
+Cycle count and battery health are shown only when the Android battery broadcast reports them. Full-charge capacity and state-of-health values are vendor-specific on many phones and may require root-accessible files. SysBattery does not invent unavailable values or claim FKM-equivalent vendor algorithms. Screen-on/off time is measured from screen-state transitions observed while the service is alive; periods when Android stops the process cannot be reconstructed precisely without system usage/history access.
+
+On One UI and other OEM builds, an inaccessible sysfs node is a permission/device limitation, not a parser error. Compare reported numbers against Android Settings or a trusted battery diagnostic app on the same device before treating them as calibrated physical measurements.
