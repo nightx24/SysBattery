@@ -456,7 +456,6 @@ class BatteryMonitorService : Service() {
                 ?: sample?.currentMilliAmpsSigned?.let { kotlin.math.abs(it) }
                     ?.takeIf { it.isFinite() && it in 1.0..20_000.0 }
         } else null
-        val powerWatts = if (showChargingPower) rates?.powerWattsMagnitude else null
         val mode = when (charging) {
             true -> "Charging"
             false -> "Discharging"
@@ -491,7 +490,6 @@ class BatteryMonitorService : Service() {
                 null -> Pair(screenOnMillis, screenOffMillis)
             }
         }
-        val totalSessionMillis = (shownOnMillis + shownOffMillis).coerceAtLeast(0L)
         val activeLoss = activeDrainPercent.coerceAtLeast(0.0)
         val idleLoss = idleDrainPercent.coerceAtLeast(0.0)
         val elapsedRealtime = SystemClock.elapsedRealtime().coerceAtLeast(0L)
