@@ -78,6 +78,7 @@ class BatteryMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         reader = BatterySysfsReader(applicationContext)
+        restoreCounters()
         createNotificationChannel()
     }
 
@@ -121,6 +122,7 @@ class BatteryMonitorService : Service() {
                     sample.levelPercent, sample.currentMicroAmps, sample.chargeCounterMicroAmpHours)
                 previousLevel = newLevel
                 previousTimestamp = now
+                persistCounters()
                 delay(interval)
             }
         }
@@ -161,9 +163,14 @@ class BatteryMonitorService : Service() {
         }
         val activeRate = ratePerHour(activeDrainPercent, activeDrainMillis)
         val idleRate = ratePerHour(idleDrainPercent, idleDrainMillis)
+        val observedMillis = (screenOnMillis + screenOffMillis).coerceAtLeast(0L)
+        val screenOnPercent = if (observedMillis > 0L) screenOnMillis * 100.0 / observedMillis else 0.0
+        val screenOffPercent = if (observedMillis > 0L) screenOffMillis * 100.0 / observedMillis else 0.0
         val details = listOf(
             "Active drain: $activeRate · idle drain: $idleRate",
-            "Screen on: ${formatDuration(screenOnMillis)} · screen off: ${formatDuration(screenOffMillis)}"
+            "Screen on: ${formatDuration(screenOnMillis)} (${String.format(Locale.getDefault(), "%.1f", screenOnPercent)}%)",
+            "Screen off: ${formatDuration(screenOffMillis)} (${String.format(Locale.getDefault(), "%.1f", screenOffPercent)}%)",
+            "Awake/deep sleep: unavailable from screen state alone"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
