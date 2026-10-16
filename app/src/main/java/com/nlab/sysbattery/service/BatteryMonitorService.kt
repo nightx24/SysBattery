@@ -327,7 +327,9 @@ class BatteryMonitorService : Service() {
             String.format(Locale.getDefault(), "%.1f%s", value, unit)
         }
         val current = if (showChargingPower) rates?.currentMilliAmpsMagnitude else null
+        val signedCurrent = current?.let { if (charging == false) -it else it }
         val powerWatts = if (showChargingPower) rates?.powerWattsMagnitude else null
+        val signedPower = powerWatts?.let { if (charging == false) -it else it }
         val mode = when (charging) {
             true -> "Charging"
             false -> "Discharging"
@@ -337,16 +339,16 @@ class BatteryMonitorService : Service() {
             if (level != null) append(level).append(" · ")
             append(mode)
             if (temperature != null) append(" · ").append(temperature)
-            if (current != null) append(" · ").append(String.format(Locale.getDefault(), "%.0f mA", current))
-            if (powerWatts != null && powerWatts.isFinite()) {
-                append(" · ").append(String.format(Locale.getDefault(), "%.2f W", powerWatts))
+            if (signedCurrent != null) append(" · ").append(String.format(Locale.getDefault(), "%+.0f mA", signedCurrent))
+            if (signedPower != null && signedPower.isFinite()) {
+                append(" · ").append(String.format(Locale.getDefault(), "%+.2f W", signedPower))
             }
         }
         val activeRate = ratePerHour(activeDrainPercent, activeDrainMillis)
         val idleRate = ratePerHour(idleDrainPercent, idleDrainMillis)
         val idleWarningEnabled = preferences.getBoolean("idle_warning", true)
         val idleWarningLimit = preferences.getInt("idle_warning_percent", 5).coerceIn(1, 20)
-        val idleWarningText = if (idleWarningEnabled && idleRate != "--/hr" &&
+        val idleWarningText = if (idleWarningEnabled && idleRate != "--/hr" && idleRate != "Collecting…" &&
             idleRate.removeSuffix("%/hr").toDoubleOrNull()?.let { it > idleWarningLimit } == true) {
             "High idle drain detected: $idleRate (limit " + idleWarningLimit + "%/h)"
         } else null
