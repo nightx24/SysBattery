@@ -454,13 +454,14 @@ class BatteryMonitorService : Service() {
             false -> "Discharging"
             null -> "Battery status unavailable"
         }
+        // Match the compact Franco Kernel Manager telemetry layout: one headline,
+        // followed by drain, screen-state and sleep-state lines.
         val summary = buildString {
             if (level != null) append(level).append(" · ")
+            if (temperature != null) append(temperature).append(" · ")
             append(mode)
-            if (temperature != null) append(" · ").append(temperature)
-            if (signedCurrent != null) append(" · ").append(String.format(Locale.getDefault(), "%+.0f mA", signedCurrent))
-            if (signedPower != null && signedPower.isFinite()) {
-                append(" · ").append(String.format(Locale.getDefault(), "%+.2f W", signedPower))
+            if (current != null && current.isFinite()) {
+                append(" ").append(String.format(Locale.getDefault(), "%.0f mA", current))
             }
         }
         val activeRate = ratePerHour(activeDrainPercent, activeDrainMillis)
@@ -487,11 +488,20 @@ class BatteryMonitorService : Service() {
         val screenOffShare = if (totalSessionMillis > 0L) shownOffMillis * 100.0 / totalSessionMillis else 0.0
         val activeLoss = activeDrainPercent.coerceAtLeast(0.0)
         val idleLoss = idleDrainPercent.coerceAtLeast(0.0)
+        val elapsedRealtime = SystemClock.elapsedRealtime().coerceAtLeast(0L)
+        val uptime = SystemClock.uptimeMillis().coerceIn(0L, elapsedRealtime)
+        val awakeMillis = uptime
+        val deepSleepMillis = (elapsedRealtime - uptime).coerceAtLeast(0L)
+        val sinceBootMillis = (awakeMillis + deepSleepMillis).coerceAtLeast(1L)
+        val deepSleepShare = deepSleepMillis * 100.0 / sinceBootMillis
+        val awakeShare = awakeMillis * 100.0 / sinceBootMillis
         val details = listOfNotNull(
             idleWarningText,
             "Active drain: $activeRate · idle drain: $idleRate",
-            "Screen on: " + formatDuration(shownOnMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOnShare) + "% time · " + String.format(Locale.getDefault(), "%.2f", activeLoss) + "% battery)",
-            "Screen off: " + formatDuration(shownOffMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffShare) + "% time · " + String.format(Locale.getDefault(), "%.2f", idleLoss) + "% battery)"
+            "Screen on: " + formatDuration(shownOnMillis) + " (" + String.format(Locale.getDefault(), "%.0f", activeLoss) + "%)",
+            "Screen off: " + formatDuration(shownOffMillis) + " (" + String.format(Locale.getDefault(), "%.0f", idleLoss) + "%)",
+            "Deep sleep: " + formatDuration(deepSleepMillis) + " (" + String.format(Locale.getDefault(), "%.2f", deepSleepShare) + "%)",
+            "Awake: " + formatDuration(awakeMillis) + " (" + String.format(Locale.getDefault(), "%.2f", awakeShare) + "%)"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(com.nlab.sysbattery.R.drawable.ic_sysbattery_status)
@@ -511,7 +521,6 @@ class BatteryMonitorService : Service() {
             ))
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$summary\n$details"))
-            .setSubText("Battery monitor")
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setShowWhen(false)
