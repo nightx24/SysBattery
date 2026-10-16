@@ -420,7 +420,14 @@ private fun BatteryDashboard(
     val temperatureUnit = remember(preferencesRevision) {
         settingsPrefs.getString("temperature_unit", "Celsius (°C)") ?: "Celsius (°C)"
     }
-    val current = rates?.currentMilliAmpsMagnitude?.let { String.format(Locale.getDefault(), "%.0f mA", it) } ?: "—"
+    val current = rates?.currentMilliAmpsMagnitude?.let { magnitude ->
+        val signed = when (rates.direction) {
+            BatteryStatsCalculator.Direction.CHARGING -> magnitude
+            BatteryStatsCalculator.Direction.DISCHARGING -> -magnitude
+            BatteryStatsCalculator.Direction.UNKNOWN -> magnitude
+        }
+        String.format(Locale.getDefault(), "%+.0f mA", signed)
+    } ?: "—"
     val temp = sample?.temperatureTenthsCelsius?.let {
         val celsius = it / 10.0
         val fahrenheit = celsius * 9.0 / 5.0 + 32.0
@@ -428,6 +435,20 @@ private fun BatteryDashboard(
         else String.format(Locale.getDefault(), "%.1f °C", celsius)
     } ?: "—"
     val voltage = sample?.voltageMilliVolts?.let { "$it mV" } ?: "—"
+    val power = rates?.powerWattsMagnitude?.let {
+        val signed = if (rates.direction == BatteryStatsCalculator.Direction.DISCHARGING) -it else it
+        String.format(Locale.getDefault(), "%+.2f W", signed)
+    } ?: "—"
+    val cycleCount = sample?.cycleCount?.toString() ?: "Not reported"
+    val health = when (sample?.health) {
+        android.os.BatteryManager.BATTERY_HEALTH_GOOD -> "Good"
+        android.os.BatteryManager.BATTERY_HEALTH_OVERHEAT -> "Overheating"
+        android.os.BatteryManager.BATTERY_HEALTH_DEAD -> "Dead"
+        android.os.BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE -> "Over-voltage"
+        android.os.BatteryManager.BATTERY_HEALTH_UNSPECIFIED_FAILURE -> "Failure reported"
+        android.os.BatteryManager.BATTERY_HEALTH_COLD -> "Cold"
+        else -> "Not reported"
+    }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var selectedOptionsPage by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(selectedTab, usageAccessGranted) {
@@ -557,6 +578,16 @@ private fun BatteryDashboard(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 MetricCard("Voltage", voltage, "ϟ", Modifier.weight(1f))
                 MetricCard("Drain rate", rates?.batteryPercentPerHour?.let { String.format(Locale.getDefault(), "%.2f%%/h", it) } ?: "Collecting…", "⌁", Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                MetricCard("Power", power, "W", Modifier.weight(1f))
+                MetricCard("Health", health, "♥", Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                MetricCard("Cycle count", cycleCount, "↻", Modifier.weight(1f))
+                MetricCard("Charge counter", sample?.chargeCounterMicroAmpHours?.let {
+                    String.format(Locale.getDefault(), "%.0f mAh", it / 1000.0)
+                } ?: "Not reported", "mAh", Modifier.weight(1f))
             }
             GlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
