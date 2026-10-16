@@ -36,8 +36,9 @@ object BatteryStatsCalculator {
     )
 
     private const val WINDOW_MS = 10 * 60 * 1000L
-    private const val MIN_RATE_SPAN_MS = 60 * 1000L
     private const val MIN_LEVEL_RATE_SPAN_MS = 3 * 60 * 1000L
+    private const val MIN_CURRENT_SAMPLES = 3
+    private const val MIN_CURRENT_SPAN_MS = 45 * 1000L
     private const val MIN_SAMPLE_SPACING_MS = 15 * 1000L
     private const val MAX_SAMPLES = 60
     private const val MAX_PLAUSIBLE_CURRENT_MA = 15_000.0
@@ -79,12 +80,13 @@ object BatteryStatsCalculator {
                 result
             }.takeLast(MAX_SAMPLES)
 
-        val usableCurrent = window.mapNotNull { sample ->
+        val validCurrentSamples = window.mapNotNull { sample ->
             sample.currentMicroAmps?.let { raw ->
                 val ma = abs(raw) / 1_000.0
-                if (ma in 1.0..MAX_PLAUSIBLE_CURRENT_MA) ma else null
+                if (ma in 1.0..MAX_PLAUSIBLE_CURRENT_MA) sample.timestampMillis to ma else null
             }
         }
+        val usableCurrent = validCurrentSamples.map { it.second }
         val currentMa = usableCurrent.takeIf { it.isNotEmpty() }?.average()
             ?: current.currentMicroAmps?.let { raw ->
                 (abs(raw) / 1_000.0).takeIf { it in 1.0..MAX_PLAUSIBLE_CURRENT_MA }
@@ -108,12 +110,18 @@ object BatteryStatsCalculator {
             (last.chargeCounterMicroAmpHours - first.chargeCounterMicroAmpHours) / 1_000.0
         } else null
 
-        // Charge counter is preferred when it is moving plausibly. Level-based rate is a slower fallback.
-        val counterRate = if (direction == Direction.DISCHARGING && span > 0L &&
-            chargeDelta != null && chargeDelta < 0.0 && -chargeDelta <= 20_000.0) {
-            (-chargeDelta * 60.0 / (span / 60_000.0)) // mAh/h; kept as a capacity-independent diagnostic
-        } else null
-        val pctRate = levelRate?.takeIf { it in 0.0..MAX_PLAUSIBLE_RATE }
+        val fullCapacityMah = (current.fullChargeCapacityMicroAmpHours
+            ?: current.estimatedFullChargeCapacityMicroAmpHours)
+            ?.takeIf { it > 0L }?.div(1_000.0)
+        val currentSpan = if (validCurrentSamples.size >= 2) {
+            validCurrentSamples.last().first - validCurrentSamples.first().first
+        } else 0L
+        val currentDerivedRate = if (
+            direction == Direction.DISCHARGING &&
+            currentMa != null && fullCapacityMah != null && fullCapacityMah > 0.0 &&
+            validCurrentSamples.size >= MIN_CURRENT_SAMPLES && currentSpan >= MIN_CURRENT_SPAN_MS
+        ) currentMa * 100.0 / fullCapacityMah else null
+        val pctRate = (currentDerivedRate ?: levelRate)?.takeIf { it in 0.0..MAX_PLAUSIBLE_RATE }
         val rate = pctRate
         val integratedMah = if (currentMa != null && span > 0L && direction == Direction.DISCHARGING) {
             currentMa * span / 3_600_000.0
@@ -123,7 +131,7 @@ object BatteryStatsCalculator {
             currentMilliAmpsMagnitude = currentMa,
             batteryPercentPerHour = rate,
             estimatedDischargeMilliAmpHours = integratedMah,
-            chargeCounterDeltaMilliAmpHours = chargeDelta ?: counterRate,
+            chargeCounterDeltaMilliAmpHours = chargeDelta,
             direction = direction,
             powerWattsMagnitude = powerW?.takeIf { it.isFinite() },
             sampleCount = window.size,
