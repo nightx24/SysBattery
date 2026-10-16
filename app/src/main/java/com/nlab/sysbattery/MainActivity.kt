@@ -2,6 +2,9 @@ package com.nlab.sysbattery
 
 import android.Manifest
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -81,6 +84,16 @@ class MainActivity : ComponentActivity() {
                                 data = Uri.parse("package:$packageName")
                             })
                         } catch (_: Exception) { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                    },
+                    onUsageAccess = {
+                        try { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+                        catch (_: Exception) { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                    },
+                    onCopyAdb = {
+                        val commands = "adb shell pm grant com.nlab.sysbattery android.permission.BATTERY_STATS\nadb shell appops set com.nlab.sysbattery GET_USAGE_STATS allow"
+                        (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
+                            .setPrimaryClip(ClipData.newPlainText("SysBattery ADB commands", commands))
+                        Toast.makeText(this, "ADB commands copied", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -117,7 +130,9 @@ private fun BatteryDashboard(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onShizuku: () -> Unit,
-    onBackground: () -> Unit
+    onBackground: () -> Unit,
+    onUsageAccess: () -> Unit,
+    onCopyAdb: () -> Unit
 ) {
     val dark = isSystemInDarkTheme()
     val bg = if (dark) Color(0xFF090E1B) else Color(0xFFF1F4FC)
@@ -198,6 +213,23 @@ private fun BatteryDashboard(
                 Text(
                     "ColorOS / OxygenOS: enable Auto-launch and allow background activity. HyperOS: set Battery saver to No restrictions and enable autostart if available. One UI: set battery usage to Unrestricted and remove SysBattery from Sleeping apps. Also allow notifications. Menu names vary by OS version.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            GlassCard {
+                Text("Advanced battery statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Optional ADB setup for supported Android builds. BATTERY_STATS can expose system battery history when the OS accepts the grant. Usage access lets SysBattery correlate app foreground/background time; it does not itself provide per-app mAh attribution.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(onClick = onCopyAdb, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Text("Copy ADB commands")
+                }
+                OutlinedButton(onClick = onUsageAccess, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Text("Open Usage Access settings")
+                }
+                Text(
+                    "On your computer, with USB debugging authorized, run the copied commands. If pm grant reports a permission/protection error, that Android build does not allow this grant to a regular app. Usage access may still need to be enabled manually in Settings.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
                 )
             }
             GlassCard {
