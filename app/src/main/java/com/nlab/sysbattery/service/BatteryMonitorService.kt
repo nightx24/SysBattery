@@ -3,6 +3,7 @@ package com.nlab.sysbattery.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -52,11 +53,15 @@ class BatteryMonitorService : Service() {
         const val EXTRA_INTERVAL_MS = "interval_ms"
         private const val DEFAULT_INTERVAL_MS = 10_000L
         private const val CHANNEL_ID = "sysbattery_monitor"
+        const val PREFS_NAME = "sysbattery"
+        const val PREF_MONITOR_ENABLED = "monitor_enabled"
         private const val NOTIFICATION_ID = 4102
         private val mutableState = MutableStateFlow(MonitorState())
         val state: StateFlow<MonitorState> = mutableState.asStateFlow()
 
         fun start(context: Context, intervalMs: Long = DEFAULT_INTERVAL_MS) {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(PREF_MONITOR_ENABLED, true).apply()
             val intent = Intent(context, BatteryMonitorService::class.java).setAction(ACTION_START)
                 .putExtra(EXTRA_INTERVAL_MS, intervalMs.coerceIn(2_000L, 60_000L))
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
@@ -64,7 +69,8 @@ class BatteryMonitorService : Service() {
         }
 
         fun stop(context: Context) {
-            // Stop directly instead of launching a foreground service just to stop it.
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(PREF_MONITOR_ENABLED, false).apply()
             context.stopService(Intent(context, BatteryMonitorService::class.java))
         }
     }
@@ -163,6 +169,19 @@ class BatteryMonitorService : Service() {
             .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
             .setContentTitle("SysBattery")
             .setContentText(summary)
+            .setContentIntent(PendingIntent.getActivity(
+                this, 4103,
+                Intent(this, com.nlab.sysbattery.MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            ))
+            .setDeleteIntent(PendingIntent.getBroadcast(
+                this, 4104,
+                Intent(this, com.nlab.sysbattery.receiver.NotificationDismissedReceiver::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            ))
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$summary\n$details"))
             .setSubText("Battery monitor")
             .setOnlyAlertOnce(true)
