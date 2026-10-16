@@ -110,9 +110,13 @@ object BatteryStatsCalculator {
             (last.chargeCounterMicroAmpHours - first.chargeCounterMicroAmpHours) / 1_000.0
         } else null
 
+        // FKM-style drain estimation must not depend solely on charge_full, which
+        // is commonly unreadable to third-party apps on stock Android. Prefer measured
+        // full capacity, then learned capacity, then the battery's design capacity.
         val fullCapacityMah = (current.fullChargeCapacityMicroAmpHours
-            ?: current.estimatedFullChargeCapacityMicroAmpHours)
-            ?.takeIf { it > 0L }?.div(1_000.0)
+            ?: current.estimatedFullChargeCapacityMicroAmpHours
+            ?: current.designCapacityMicroAmpHours)
+            ?.takeIf { it in 100_000L..30_000_000L }?.div(1_000.0)
         val currentSpan = if (validCurrentSamples.size >= 2) {
             validCurrentSamples.last().first - validCurrentSamples.first().first
         } else 0L
