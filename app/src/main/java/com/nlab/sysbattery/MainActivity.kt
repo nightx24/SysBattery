@@ -151,6 +151,7 @@ private fun SysBatteryTheme(themeMode: String, content: @Composable () -> Unit) 
     MaterialTheme(colorScheme = scheme, content = content)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BatteryDashboard(
     sample: BatterySysfsReader.Snapshot?,
@@ -362,7 +363,7 @@ private fun BatteryDashboard(
                 preferencesRevision = preferencesRevision
             )
             }
-            if (selectedTab == 0) Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (selectedTab == 0) Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
