@@ -41,6 +41,8 @@ class BatteryMonitorService : Service() {
     private var monitorJob: Job? = null
     private var screenOnMillis = 0L
     private var screenOffMillis = 0L
+    private var screenOnSinceSampleMillis = 0L
+    private var screenOffSinceSampleMillis = 0L
     // Fractional percentage-point loss avoids waiting for a full 1% level drop.
     private var activeDrainPercent = 0.0
     private var idleDrainPercent = 0.0
@@ -215,8 +217,10 @@ class BatteryMonitorService : Service() {
                 idleDrainPercent += drop
             }
         }
-        activeDrainMillis += onElapsed
-        idleDrainMillis += offElapsed
+        if (elapsed > 0L) {
+            activeDrainMillis += onElapsed
+            idleDrainMillis += offElapsed
+        }
 
         mutableState.value = MonitorState(sample, rates)
         runCatching {
@@ -256,8 +260,6 @@ class BatteryMonitorService : Service() {
 
     private fun updateAndMeasureScreenTime(interactive: Boolean, now: Long): Pair<Long, Long> =
         synchronized(screenStateLock) {
-            val onBefore = screenOnMillis
-            val offBefore = screenOffMillis
             when (screenStateInteractive) {
                 null -> {
                     screenStateInteractive = interactive
@@ -266,7 +268,11 @@ class BatteryMonitorService : Service() {
                 interactive -> accumulateScreenTimeLocked(now)
                 else -> updateScreenStateLocked(interactive, now)
             }
-            Pair((screenOnMillis - onBefore).coerceAtLeast(0L), (screenOffMillis - offBefore).coerceAtLeast(0L))
+            val onDelta = screenOnSinceSampleMillis
+            val offDelta = screenOffSinceSampleMillis
+            screenOnSinceSampleMillis = 0L
+            screenOffSinceSampleMillis = 0L
+            Pair(onDelta, offDelta)
         }
 
     private fun updateScreenStateLocked(interactive: Boolean, now: Long) {
@@ -287,8 +293,14 @@ class BatteryMonitorService : Service() {
         }
         val elapsed = now - since
         when (screenStateInteractive) {
-            true -> screenOnMillis += elapsed
-            false -> screenOffMillis += elapsed
+            true -> {
+                screenOnMillis += elapsed
+                screenOnSinceSampleMillis += elapsed
+            }
+            false -> {
+                screenOffMillis += elapsed
+                screenOffSinceSampleMillis += elapsed
+            }
             null -> Unit
         }
         screenStateSinceElapsed = now
@@ -343,6 +355,8 @@ class BatteryMonitorService : Service() {
             accumulateScreenTimeLocked(now)
             screenOnMillis = 0L
             screenOffMillis = 0L
+            screenOnSinceSampleMillis = 0L
+            screenOffSinceSampleMillis = 0L
             screenStateSinceElapsed = now
         }
         activeDrainPercent = 0.0
