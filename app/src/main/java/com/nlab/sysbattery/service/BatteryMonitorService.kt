@@ -1,5 +1,7 @@
 package com.nlab.sysbattery.service
 
+import com.nlab.sysbattery.diagnostics.DiagnosticLogger
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -99,7 +101,8 @@ class BatteryMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null && !getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_MONITOR_ENABLED, false)) {
-            monitorJob?.cancel()
+            DiagnosticLogger.info("Battery monitor service stopping")
+        monitorJob?.cancel()
             stopForeground(true)
             stopSelf(startId)
             return START_NOT_STICKY
@@ -114,6 +117,7 @@ class BatteryMonitorService : Service() {
         val interval = (intent?.getLongExtra(EXTRA_INTERVAL_MS, DEFAULT_INTERVAL_MS) ?: DEFAULT_INTERVAL_MS)
             .coerceIn(2_000L, 60_000L)
         monitorJob?.cancel()
+        DiagnosticLogger.info("Battery monitor service starting")
         monitorJob = scope.launch {
             while (isActive) {
                 val sample = reader.readSnapshot()
