@@ -796,10 +796,41 @@ private fun BatteryDashboard(
             }
             if (selectedTab == 0) Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        NavigationBar(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(), containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f), tonalElevation = 6.dp) {
+        NavigationBar(
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 3.dp
+        ) {
             listOf("Status", "App usage", "Settings").forEachIndexed { index, label ->
-                val icon = when (index) { 0 -> Icons.Rounded.Home; 1 -> Icons.Rounded.Apps; else -> Icons.Rounded.Settings }
-                NavigationBarItem(selected = selectedTab == index, onClick = { selectedTab = index }, icon = { Icon(icon, contentDescription = label) }, label = { Text(label) }, alwaysShowLabel = true)
+                val selected = selectedTab == index
+                val icon = when (index) {
+                    0 -> Icons.Rounded.BatteryChargingFull
+                    1 -> Icons.Rounded.Apps
+                    else -> Icons.Rounded.Settings
+                }
+                NavigationBarItem(
+                    selected = selected,
+                    onClick = { selectedTab = index },
+                    icon = {
+                        Icon(
+                            icon,
+                            contentDescription = label,
+                            modifier = Modifier.size(24.dp),
+                            tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    label = { Text(label, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
+                    alwaysShowLabel = true,
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
             }
         }
     }
