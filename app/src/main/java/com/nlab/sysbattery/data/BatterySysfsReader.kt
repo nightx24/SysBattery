@@ -28,6 +28,8 @@ class BatterySysfsReader(context: Context) {
         val health: Int? = null,
         val cycleCount: Int? = null,
         val status: Int? = null,
+        val fullChargeCapacityMicroAmpHours: Long? = null,
+        val designCapacityMicroAmpHours: Long? = null,
         val source: String
     ) {
         val currentMilliAmpsSigned: Double?
@@ -72,6 +74,8 @@ class BatterySysfsReader(context: Context) {
                 "/sys/class/power_supply/battery/charge_counter",
                 "/sys/class/power_supply/bms/charge_counter"
             ))?.takeIf { it > 0L }
+        val fullChargeCapacity = readSysfs(listOf("/sys/class/power_supply/battery/charge_full", "/sys/class/power_supply/bms/charge_full"))?.takeIf { it > 0L }
+        val designCapacity = readSysfs(listOf("/sys/class/power_supply/battery/charge_full_design", "/sys/class/power_supply/bms/charge_full_design"))?.takeIf { it > 0L }
         val temperature = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
             ?.takeIf { it in 0..1_000 }
         val health = batteryIntent?.getIntExtra(BatteryManager.EXTRA_HEALTH, -1)?.takeIf { it >= 0 }
@@ -87,6 +91,8 @@ class BatterySysfsReader(context: Context) {
         if (chargeCounter != null) sources += "charge-counter"
         if (health != null) sources += "health"
         if (cycleCount != null) sources += "cycle-count"
+        if (fullChargeCapacity != null) sources += "full-charge-capacity"
+        if (designCapacity != null) sources += "design-capacity"
 
         return Snapshot(
             levelPercent = level,
@@ -97,6 +103,8 @@ class BatterySysfsReader(context: Context) {
             health = health,
             cycleCount = cycleCount,
             status = status,
+            fullChargeCapacityMicroAmpHours = fullChargeCapacity,
+            designCapacityMicroAmpHours = designCapacity,
             source = sources.joinToString(",").ifBlank { "no-readable-telemetry" }
         )
     }
