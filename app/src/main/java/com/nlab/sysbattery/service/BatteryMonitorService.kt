@@ -187,6 +187,89 @@ class BatteryMonitorService : Service() {
         persistCounters()
     }
 
+    private fun registerScreenStateReceiver() {
+        if (screenReceiverRegistered) return
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(screenStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(screenStateReceiver, filter)
+            }
+            screenReceiverRegistered = true
+        } catch (t: RuntimeException) {
+            DiagnosticLogger.error("Unable to register screen-state receiver", t)
+        }
+    }
+
+    private fun updateScreenState(interactive: Boolean, now: Long = SystemClock.elapsedRealtime()) {
+        accumulateScreenTime(now)
+        screenStateInteractive = interactive
+        screenStateSinceElapsed = now
+    }
+
+    private fun accumulateScreenTime(now: Long = SystemClock.elapsedRealtime()) {
+        val since = screenStateSinceElapsed
+        if (since <= 0L || now <= since) {
+            screenStateSinceElapsed = now
+            return
+        }
+        val elapsed = now - since
+        when (screenStateInteractive) {
+            true -> screenOnMillis += elapsed
+            false -> screenOffMillis += elapsed
+            null -> Unit
+        }
+        screenStateSinceElapsed = now
+    }
+
+    private fun trimRateSamples(now: Long) {
+        val cutoff = now - 10 * 60 * 1000L
+        rateSamples.removeAll { it.timestampMillis < cutoff || it.timestampMillis > now }
+        while (rateSamples.size > 60) rateSamples.removeAt(0)
+        val compacted = rateSamples.fold(mutableListOf<BatteryStatsCalculator.TimedSample>()) { out, item ->
+            if (out.isEmpty() || item.timestampMillis - out.last().timestampMillis >= 15_000L) out.add(item)
+            out
+        }
+        rateSamples.clear()
+        rateSamples.addAll(compacted)
+    }
+
+    private fun persistRateSamples() {
+        val encoded = rateSamples.joinToString(";") { sample ->
+            listOf(sample.timestampMillis.toString(), sample.levelPercent?.toString() ?: "x",
+                sample.currentMicroAmps?.toString() ?: "x", sample.chargeCounterMicroAmpHours?.toString() ?: "x")
+                .joinToString(",")
+        }
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString("rate_samples_v1", encoded)
+            .putString("rate_direction_v1", lastRateDirection?.name ?: "UNKNOWN")
+            .apply()
+    }
+
+    private fun restoreRateSamples() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        lastRateDirection = runCatching {
+            BatteryStatsCalculator.Direction.valueOf(prefs.getString("rate_direction_v1", "UNKNOWN") ?: "UNKNOWN")
+        }.getOrDefault(BatteryStatsCalculator.Direction.UNKNOWN)
+        val parsed = prefs.getString("rate_samples_v1", "").orEmpty().split(";").mapNotNull { row ->
+            val fields = row.split(",")
+            if (fields.size != 4) return@mapNotNull null
+            val timestamp = fields[0].toLongOrNull() ?: return@mapNotNull null
+            val level = fields[1].takeIf { it != "x" }?.toIntOrNull()
+            val current = fields[2].takeIf { it != "x" }?.toLongOrNull()
+            val charge = fields[3].takeIf { it != "x" }?.toLongOrNull()
+            BatteryStatsCalculator.TimedSample(timestamp, level, current, charge)
+        }
+        rateSamples.clear()
+        rateSamples.addAll(parsed)
+        trimRateSamples(System.currentTimeMillis())
+    }
+
     private fun resetCounters() {
         screenOnMillis = 0L
         screenOffMillis = 0L
@@ -343,6 +426,13 @@ class BatteryMonitorService : Service() {
     override fun onDestroy() {
         DiagnosticLogger.info("Battery monitor service destroyed")
         monitorJob?.cancel()
+        if (screenReceiverRegistered) {
+            runCatching { unregisterReceiver(screenStateReceiver) }
+            screenReceiverRegistered = false
+        }
+        accumulateScreenTime()
+        persistCounters()
+        persistRateSamples()
         scope.cancel()
         super.onDestroy()
     }
