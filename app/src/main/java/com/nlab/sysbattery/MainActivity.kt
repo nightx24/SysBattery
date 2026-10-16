@@ -2,9 +2,6 @@ package com.nlab.sysbattery
 
 import android.Manifest
 import android.content.Intent
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.widget.Toast
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -47,22 +44,14 @@ import com.nlab.sysbattery.data.AdvancedBatteryStatsReader
 import com.nlab.sysbattery.data.RootAccessReader
 import com.nlab.sysbattery.domain.BatteryStatsCalculator
 import com.nlab.sysbattery.service.BatteryMonitorService
-import rikka.shizuku.Shizuku
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
-    private var shizukuMessage by mutableStateOf<String?>(null)
-    private val shizukuListener = Shizuku.OnRequestPermissionResultListener { code, result ->
-        if (code == 7204) shizukuMessage = if (result == android.content.pm.PackageManager.PERMISSION_GRANTED)
-            "Shizuku permission granted. Extra readings still depend on device access."
-        else "Shizuku permission denied; standard readings remain available."
-    }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        Shizuku.addRequestPermissionResultListener(shizukuListener)
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -78,7 +67,7 @@ class MainActivity : ComponentActivity() {
             var rootLoading by remember { mutableStateOf(false) }
             SysBatteryTheme(themeMode) {
                 BatteryDashboard(
-                    sample = state.sample, rates = state.rates, running = running, shizukuMessage = shizukuMessage,
+                    sample = state.sample, rates = state.rates, running = running,
                     onStart = { BatteryMonitorService.start(this); running = true },
                     onStop = { BatteryMonitorService.stop(this); running = false },
                     onMonitorEnabledChange = { enabled ->
@@ -88,14 +77,6 @@ class MainActivity : ComponentActivity() {
                         } else {
                             BatteryMonitorService.stop(this)
                             running = false
-                        }
-                    },
-                    onShizuku = {
-                        when {
-                            !Shizuku.pingBinder() -> shizukuMessage = "Shizuku is not running. Start it first."
-                            Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED ->
-                                shizukuMessage = "Shizuku permission is already granted."
-                            else -> Shizuku.requestPermission(7204)
                         }
                     },
                     onBackground = {
@@ -108,12 +89,6 @@ class MainActivity : ComponentActivity() {
                     onUsageAccess = {
                         try { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
                         catch (_: Exception) { startActivity(Intent(Settings.ACTION_SETTINGS)) }
-                    },
-                    onCopyAdb = {
-                        val commands = "adb shell pm grant com.nlab.sysbattery android.permission.BATTERY_STATS\nadb shell appops set com.nlab.sysbattery GET_USAGE_STATS allow"
-                        (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
-                            .setPrimaryClip(ClipData.newPlainText("SysBattery ADB commands", commands))
-                        Toast.makeText(this, "ADB commands copied", Toast.LENGTH_SHORT).show()
                     },
                     advancedReport = advancedReport,
                     advancedError = advancedError,
@@ -144,7 +119,6 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        Shizuku.removeRequestPermissionResultListener(shizukuListener)
         super.onDestroy()
     }
 }
@@ -182,13 +156,10 @@ private fun BatteryDashboard(
     sample: BatterySysfsReader.Snapshot?,
     rates: BatteryStatsCalculator.Rates?,
     running: Boolean,
-    shizukuMessage: String?,
     onStart: () -> Unit,
     onStop: () -> Unit,
-    onShizuku: () -> Unit,
     onBackground: () -> Unit,
     onUsageAccess: () -> Unit,
-    onCopyAdb: () -> Unit,
     advancedReport: AdvancedBatteryStatsReader.Report?,
     advancedError: String?,
     rootReport: RootAccessReader.RootReport?,
@@ -290,17 +261,14 @@ private fun BatteryDashboard(
             GlassCard {
                 Text("Advanced battery statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Optional ADB setup for supported Android builds. BATTERY_STATS can expose system battery history when the OS accepts the grant. Usage access lets SysBattery correlate app foreground/background time; it does not itself provide per-app mAh attribution.",
+                    "SysBattery uses public battery APIs for live readings and Usage Access for app foreground time. Android restricts per-app power attribution on many production builds; if access is denied, the app reports that limitation instead of showing invented mAh values.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
                 )
-                OutlinedButton(onClick = onCopyAdb, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                    Text("Copy ADB commands")
-                }
                 OutlinedButton(onClick = onUsageAccess, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                     Text("Open Usage Access settings")
                 }
                 Text(
-                    "On your computer, with USB debugging authorized, run the copied commands. If pm grant reports a permission/protection error, that Android build does not allow this grant to a regular app. Usage access may still need to be enabled manually in Settings.",
+                    "No privileged ADB grant is required for live battery level, voltage, temperature, and supported current readings. Usage Access is managed in Android Settings; ADB may be blocked from changing it on some OEM builds.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -368,8 +336,6 @@ private fun BatteryDashboard(
                         )
                     }
                 }
-                OutlinedButton(onClick = onShizuku, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("Check Shizuku access") }
-                shizukuMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 Text("Source: ${sample?.source ?: "waiting for first sample"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             BatteryMonitorSettings(
