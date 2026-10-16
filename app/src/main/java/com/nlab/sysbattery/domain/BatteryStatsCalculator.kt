@@ -41,8 +41,12 @@ object BatteryStatsCalculator {
         val elapsed = current.timestampMillis - previous.timestampMillis
         if (elapsed <= 0L) return Rates(currentMa?.let(::abs), null, null, null, direction)
 
-        val percentPerHour = if (previous.levelPercent != null && current.levelPercent != null) {
-            abs(current.levelPercent - previous.levelPercent) * 3_600_000.0 / elapsed
+        val percentDrop = if (previous.levelPercent != null && current.levelPercent != null) {
+            previous.levelPercent - current.levelPercent
+        } else null
+        // Report discharge only: an increasing percentage while charging is not battery drain.
+        val percentPerHour = if (direction == Direction.DISCHARGING && percentDrop != null && percentDrop > 0) {
+            percentDrop * 3_600_000.0 / elapsed
         } else null
 
         val counterDelta = if (previous.chargeCounterMicroAmpHours != null &&
