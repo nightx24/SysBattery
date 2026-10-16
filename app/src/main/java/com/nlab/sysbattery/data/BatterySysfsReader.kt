@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.BatteryManager
 import rikka.shizuku.Shizuku
+import rikka.shizuku.ShizukuRemoteProcess
 import java.io.File
 import java.io.IOException
 
