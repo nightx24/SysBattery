@@ -1190,7 +1190,7 @@ private fun BatteryMonitorSettings(
                     onPreferencesChanged()
                     Toast.makeText(context, "Design capacity saved", Toast.LENGTH_SHORT).show()
                 }
-            }, enabled = designCapacityInput.toIntOrNull() in 500..20000, modifier = Modifier.weight(1f)) { Text("Save capacity") }
+            }, enabled = designCapacityInput.toIntOrNull()?.let { it in 500..20000 } == true, modifier = Modifier.weight(1f)) { Text("Save capacity") }
         }
         HorizontalDivider()
         Text("Battery temperature unit", style = MaterialTheme.typography.titleSmall)
