@@ -262,6 +262,16 @@ private fun BatteryDashboard(
     rootLoading: Boolean,
     onRefreshRoot: () -> Unit,
     onRefreshAdvanced: () -> Unit,
+    shizukuStatus: String,
+    shizukuAuthorized: Boolean,
+    shizukuFindings: List<RootBatteryStatsParser.Finding>,
+    shizukuLoading: Boolean,
+    onRequestShizuku: () -> Unit,
+    shizukuStatus: String,
+    shizukuAuthorized: Boolean,
+    shizukuFindings: List<RootBatteryStatsParser.Finding>,
+    shizukuLoading: Boolean,
+    onRequestShizuku: () -> Unit,
     onMonitorEnabledChange: (Boolean) -> Unit,
     onThemeModeChange: (String) -> Unit,
     onPreferencesChanged: () -> Unit,
@@ -378,6 +388,36 @@ private fun BatteryDashboard(
                     "No privileged ADB grant is required for live battery level, voltage, temperature, and supported current readings. Usage Access is managed in Android Settings; ADB may be blocked from changing it on some OEM builds.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
                 )
+            }
+            GlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Shizuku advanced access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(shizukuStatus, color = if (shizukuAuthorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    Surface(shape = CircleShape, color = if (shizukuAuthorized) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
+                        Icon(Icons.Rounded.Security, contentDescription = null, modifier = Modifier.padding(10.dp),
+                            tint = if (shizukuAuthorized) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Text("Optional. Shizuku can run selected read-only BatteryStats diagnostics with shell privileges. Standard battery monitoring works without it.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Button(onClick = onRequestShizuku, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Text(when {
+                        shizukuAuthorized -> "Shizuku authorized"
+                        shizukuStatus.contains("not installed", ignoreCase = true) || shizukuStatus.contains("installed · service not running", ignoreCase = true) -> "Open / install Shizuku"
+                        else -> "Enable Shizuku access"
+                    })
+                }
+                if (shizukuAuthorized) {
+                    OutlinedButton(onClick = onRefreshAdvanced, enabled = !shizukuLoading, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                        Text(if (shizukuLoading) "Reading BatteryStats…" else "Read privileged BatteryStats")
+                    }
+                    shizukuFindings.take(20).forEach { finding ->
+                        Text("${finding.label}: ${finding.value}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (shizukuFindings.isEmpty() && !shizukuLoading) Text("No Shizuku report loaded yet. Tap Read privileged BatteryStats.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             GlassCard {
                 Text("Battery attribution & app activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
