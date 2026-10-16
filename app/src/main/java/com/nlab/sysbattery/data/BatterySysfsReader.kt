@@ -34,12 +34,20 @@ class BatterySysfsReader(context: Context) {
                 "/sys/class/power_supply/bms/current_now"
             ))
 
+        // ACTION_BATTERY_CHANGED reports battery voltage in mV. USB input voltage
+        // can be ~5 V and is not the battery cell voltage.
+        val batteryVoltageMv = try {
+            appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                ?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+                ?.takeIf { it in 2_000..6_000 }
+                ?.toLong()
+        } catch (_: RuntimeException) { null }
         val voltageUv = readSysfs(listOf(
             "/sys/class/power_supply/battery/voltage_now",
-            "/sys/class/power_supply/usb/voltage_now",
             "/sys/class/power_supply/bms/voltage_now"
         ))
-        val voltageMv = voltageUv?.takeIf { it in 2_000_000L..30_000_000L }?.div(1_000L)
+        val voltageMv = batteryVoltageMv
+            ?: voltageUv?.takeIf { it in 2_000_000L..30_000_000L }?.div(1_000L)
 
         val chargeCounter = longProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
             ?: readSysfs(listOf(
