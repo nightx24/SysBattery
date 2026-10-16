@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
                             runOnUiThread { rootReport = report; rootLoading = false }
                         }.start()
                     },
+                    settingsPrefs = prefs,
                     onRefreshAdvanced = {
                         try {
                             advancedReport = AdvancedBatteryStatsReader(this).read()
@@ -163,7 +164,8 @@ private fun BatteryDashboard(
     rootReport: RootAccessReader.RootReport?,
     rootLoading: Boolean,
     onRefreshRoot: () -> Unit,
-    onRefreshAdvanced: () -> Unit
+    onRefreshAdvanced: () -> Unit,
+    settingsPrefs: android.content.SharedPreferences
 ) {
     val dark = isSystemInDarkTheme()
     val bg = if (dark) Color(0xFF090E1B) else Color(0xFFF1F4FC)
@@ -331,8 +333,108 @@ private fun BatteryDashboard(
                 shizukuMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 Text("Source: ${sample?.source ?: "waiting for first sample"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            BatteryMonitorSettings(settingsPrefs)
             Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+@Composable
+private fun BatteryMonitorSettings(prefs: android.content.SharedPreferences) {
+    var serviceEnabled by remember { mutableStateOf(prefs.getBoolean("monitor_enabled", false)) }
+    var resetAtThreshold by remember { mutableStateOf(prefs.getBoolean("reset_at_threshold", true)) }
+    var resetOnPlug by remember { mutableStateOf(prefs.getBoolean("reset_on_plug", true)) }
+    var resetOnReboot by remember { mutableStateOf(prefs.getBoolean("reset_on_reboot", true)) }
+    var idleWarning by remember { mutableStateOf(prefs.getBoolean("idle_warning", true)) }
+    var showBatteryIcon by remember { mutableStateOf(prefs.getBoolean("show_battery_icon", false)) }
+    var showChargingPower by remember { mutableStateOf(prefs.getBoolean("show_charging_power", true)) }
+    var threshold by remember { mutableFloatStateOf(prefs.getInt("reset_threshold_percent", 90).toFloat()) }
+    var warning by remember { mutableFloatStateOf(prefs.getInt("idle_warning_percent", 5).toFloat()) }
+    var temperatureUnit by remember { mutableStateOf(prefs.getString("temperature_unit", "Celsius (°C)") ?: "Celsius (°C)") }
+    var theme by remember { mutableStateOf(prefs.getString("theme_mode", "System default") ?: "System default") }
+    var showResetConfirmation by remember { mutableStateOf(false) }
+    fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+    GlassCard {
+        Text("Monitor settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Customize tracking, reset rules, notifications and appearance.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        SettingSwitch("Battery monitor service", "Keep collecting while the app is in the background.", serviceEnabled) {
+            serviceEnabled = it; saveBoolean("monitor_enabled", it)
+        }
+        SettingSwitch("Reset stats at battery threshold", "Reset session counters when charging reaches the selected level.", resetAtThreshold) {
+            resetAtThreshold = it; saveBoolean("reset_at_threshold", it)
+        }
+        Text("Reset threshold: ${threshold.toInt()}%", style = MaterialTheme.typography.bodyMedium)
+        Slider(value = threshold, onValueChange = { threshold = it }, valueRange = 50f..100f, steps = 9,
+            onValueChangeFinished = { prefs.edit().putInt("reset_threshold_percent", threshold.toInt()).apply() },
+            enabled = resetAtThreshold)
+        SettingSwitch("Reset stats when plugged in", "Start a fresh session on charge connection.", resetOnPlug) {
+            resetOnPlug = it; saveBoolean("reset_on_plug", it)
+        }
+        SettingSwitch("Reset stats after reboot or shutdown", "Keep session history separated by device restarts.", resetOnReboot) {
+            resetOnReboot = it; saveBoolean("reset_on_reboot", it)
+        }
+        SettingSwitch("Warn about high idle drain", "Show a warning when measured idle drain exceeds your limit.", idleWarning) {
+            idleWarning = it; saveBoolean("idle_warning", it)
+        }
+        Text("Idle drain warning: ${warning.toInt()}% per hour", style = MaterialTheme.typography.bodyMedium)
+        Slider(value = warning, onValueChange = { warning = it }, valueRange = 1f..20f, steps = 18,
+            onValueChangeFinished = { prefs.edit().putInt("idle_warning_percent", warning.toInt()).apply() },
+            enabled = idleWarning)
+        HorizontalDivider()
+        Text("Battery temperature unit", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = temperatureUnit == "Celsius (°C)", onClick = {
+                temperatureUnit = "Celsius (°C)"; prefs.edit().putString("temperature_unit", temperatureUnit).apply()
+            }, label = { Text("°C") })
+            FilterChip(selected = temperatureUnit == "Fahrenheit (°F)", onClick = {
+                temperatureUnit = "Fahrenheit (°F)"; prefs.edit().putString("temperature_unit", temperatureUnit).apply()
+            }, label = { Text("°F") })
+        }
+        SettingSwitch("Show battery percentage in notification", "Enable the percentage indicator preference.", showBatteryIcon) {
+            showBatteryIcon = it; saveBoolean("show_battery_icon", it)
+        }
+        SettingSwitch("Show charging amperage and wattage", "Display live electrical readings when supported by the device.", showChargingPower) {
+            showChargingPower = it; saveBoolean("show_charging_power", it)
+        }
+        HorizontalDivider()
+        Text("Appearance", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf("System default", "Light", "Dark").forEach { mode ->
+                FilterChip(selected = theme == mode, onClick = {
+                    theme = mode; prefs.edit().putString("theme_mode", mode).apply()
+                }, label = { Text(mode) })
+            }
+        }
+        OutlinedButton(onClick = { showResetConfirmation = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("Reset stats")
+        }
+        if (showResetConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showResetConfirmation = false },
+                title = { Text("Reset battery statistics?") },
+                text = { Text("This clears SysBattery's locally stored session counters. Android system battery history is not modified.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        prefs.edit().remove("screen_on_ms").remove("screen_off_ms")
+                            .remove("active_drain_percent").remove("idle_drain_percent")
+                            .remove("active_drain_ms").remove("idle_drain_ms").apply()
+                        showResetConfirmation = false
+                    }) { Text("Reset") }
+                },
+                dismissButton = { TextButton(onClick = { showResetConfirmation = false }) { Text("Cancel") } }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingSwitch(title: String, description: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
