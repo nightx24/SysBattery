@@ -245,8 +245,7 @@ class BatteryMonitorService : Service() {
             idleWarningText,
             "Active drain: $activeRate · idle drain: $idleRate",
             "Screen on: " + formatDuration(screenOnMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOnPercent) + "%)",
-            "Screen off: " + formatDuration(screenOffMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffPercent) + "%)",
-            "Awake/deep sleep: unavailable from screen state alone"
+            "Screen off: " + formatDuration(screenOffMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffPercent) + "%)"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
