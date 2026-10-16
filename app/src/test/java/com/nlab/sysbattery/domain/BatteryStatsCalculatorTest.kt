@@ -30,13 +30,13 @@ class BatteryStatsCalculatorTest {
 
     @Test
     fun unavailableCurrentDoesNotPreventPercentageRateCalculation() {
-        val noCurrent = sample(1_800_000L, 39, 2_000_000L).copy(currentMicroAmps = null)
+        val noCurrent = sample(1_200_000L, 39, 2_000_000L).copy(currentMicroAmps = null)
         val result = BatteryStatsCalculator.calculate(
             previous = BatteryStatsCalculator.PreviousSample(600_000L, 40, null, 2_100_000L),
             current = noCurrent,
             isCharging = false
         )
-        assertEquals(3.0, result.batteryPercentPerHour!!, 0.001)
+        assertEquals(6.0, result.batteryPercentPerHour!!, 0.001)
         assertNull(result.currentMilliAmpsMagnitude)
     }
 
