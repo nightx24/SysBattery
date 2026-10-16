@@ -438,18 +438,23 @@ class BatteryMonitorService : Service() {
             "High idle drain detected: $idleRate (limit " + idleWarningLimit + "%/h)"
         } else null
         val screenTotals = synchronized(screenStateLock) { Pair(screenOnMillis, screenOffMillis) }
-        // Duration-share percentages use the whole observed monitor session, like XKM.
-        // Battery-loss percentages remain separate; do not label time share as battery drain.
-        val totalSessionMillis = (screenTotals.first + screenTotals.second).coerceAtLeast(0L)
-        val screenOnShare = if (totalSessionMillis > 0L) screenTotals.first * 100.0 / totalSessionMillis else 0.0
-        val screenOffShare = if (totalSessionMillis > 0L) screenTotals.second * 100.0 / totalSessionMillis else 0.0
+        // Include the current in-progress screen interval in display and ratio values.
+        val currentNow = SystemClock.elapsedRealtime()
+        val currentScreen = updateAndMeasureScreenTime(
+            (getSystemService(POWER_SERVICE) as PowerManager).isInteractive, currentNow
+        )
+        val shownOnMillis = screenTotals.first + currentScreen.first
+        val shownOffMillis = screenTotals.second + currentScreen.second
+        val totalSessionMillis = (shownOnMillis + shownOffMillis).coerceAtLeast(0L)
+        val screenOnShare = if (totalSessionMillis > 0L) shownOnMillis * 100.0 / totalSessionMillis else 0.0
+        val screenOffShare = if (totalSessionMillis > 0L) shownOffMillis * 100.0 / totalSessionMillis else 0.0
         val activeLoss = activeDrainPercent.coerceAtLeast(0.0)
         val idleLoss = idleDrainPercent.coerceAtLeast(0.0)
         val details = listOfNotNull(
             idleWarningText,
             "Active drain: $activeRate · idle drain: $idleRate",
-            "Screen on: " + formatDuration(screenTotals.first) + " (" + String.format(Locale.getDefault(), "%.1f", screenOnShare) + "% time · " + String.format(Locale.getDefault(), "%.2f", activeLoss) + "% battery)",
-            "Screen off: " + formatDuration(screenTotals.second) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffShare) + "% time · " + String.format(Locale.getDefault(), "%.2f", idleLoss) + "% battery)"
+            "Screen on: " + formatDuration(shownOnMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOnShare) + "% time · " + String.format(Locale.getDefault(), "%.2f", activeLoss) + "% battery)",
+            "Screen off: " + formatDuration(shownOffMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffShare) + "% time · " + String.format(Locale.getDefault(), "%.2f", idleLoss) + "% battery)"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(com.nlab.sysbattery.R.drawable.ic_sysbattery_status)
