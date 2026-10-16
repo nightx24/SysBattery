@@ -7,7 +7,6 @@ import android.os.BatteryManager
 import android.os.Build
 import java.io.File
 import java.io.IOException
-import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -52,8 +51,7 @@ class BatterySysfsReader(context: Context) {
                 ?.takeIf { it in 0..100 }
             ?: readSysfs(listOf("/sys/class/power_supply/battery/capacity"))?.toInt()?.takeIf { it in 0..100 }
 
-        // AOSP defines CURRENT_NOW in microamps but some OEM kernels expose mA instead.
-        // Keep the raw value intact; converting its unit belongs in a calibrated reader.
+        // Android defines CURRENT_NOW and standard power-supply current nodes in microamps.
         val current = signedProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
             ?: readSysfs(listOf(
                 "/sys/class/power_supply/battery/current_now",
@@ -79,26 +77,27 @@ class BatterySysfsReader(context: Context) {
         val fullChargeCapacity = readSysfs(listOf(
             "/sys/class/power_supply/battery/charge_full",
             "/sys/class/power_supply/bms/charge_full"
-        ))?.takeIf { it > 0L }
+        ))?.takeIf { it in 100_000L..30_000_000L }
         val designCapacity = readSysfs(listOf(
             "/sys/class/power_supply/battery/charge_full_design",
-            "/sys/class/power_supply/bms/charge_full_design"
-        ))?.takeIf { it > 0L }
-            ?: readSysfs(listOf("/sys/class/power_supply/battery/design_capacity", "/sys/class/power_supply/bms/design_capacity"))?.takeIf { it > 0L }
+            "/sys/class/power_supply/bms/charge_full_design",
+            "/sys/class/power_supply/battery/design_capacity",
+            "/sys/class/power_supply/bms/design_capacity"
+        ))?.takeIf { it in 100_000L..30_000_000L }
         val systemCycleCount = if (Build.VERSION.SDK_INT >= 34) {
-            batteryIntent?.getIntExtra("android.os.extra.CYCLE_COUNT", -1)?.takeIf { it >= 0 }
+            batteryIntent?.getIntExtra(BatteryManager.EXTRA_CYCLE_COUNT, -1)?.takeIf { it >= 0 }
         } else null
         val cycleCount = systemCycleCount ?: readSysfs(listOf(
             "/sys/class/power_supply/battery/cycle_count",
             "/sys/class/power_supply/bms/cycle_count"
         ))?.toInt()?.takeIf { it >= 0 }
         val estimatePrefs = appContext.getSharedPreferences("sysbattery", Context.MODE_PRIVATE)
-        if (level == 100 && chargeCounter != null && current != null &&
-            abs(current) in 1L..25_000L) {
+        if (level == 100 && chargeCounter != null && chargeCounter in 100_000L..30_000_000L &&
+            current != null && abs(current) in 1L..25_000L) {
             estimatePrefs.edit().putLong("estimated_full_charge_capacity_uah", chargeCounter).apply()
         }
         val estimatedFullChargeCapacity = estimatePrefs
-            .getLong("estimated_full_charge_capacity_uah", 0L).takeIf { it > 0L }
+            .getLong("estimated_full_charge_capacity_uah", 0L).takeIf { it in 100_000L..30_000_000L }
         val temperature = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
             ?.takeIf { it in 0..1_000 }
         val health = batteryIntent?.getIntExtra(BatteryManager.EXTRA_HEALTH, -1)?.takeIf { it >= 0 }
