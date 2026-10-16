@@ -1,7 +1,7 @@
 package com.nightx24.sysbattery
 
 import android.Manifest
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -19,7 +19,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** Minimal native UI. Sampling starts only after the user presses Start. */
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
