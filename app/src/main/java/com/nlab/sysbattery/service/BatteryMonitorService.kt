@@ -163,7 +163,9 @@ class BatteryMonitorService : Service() {
             resetCounters()
             preferences.edit().putBoolean("reset_counters_requested", false).apply()
         }
-        if (previousCharging == false && charging == true &&
+
+        val previousDirection = previousCharging
+        if (previousDirection == false && charging == true &&
             preferences.getBoolean("reset_on_plug", true)) {
             resetCounters()
             thresholdResetTriggered = false
@@ -180,16 +182,17 @@ class BatteryMonitorService : Service() {
             lastRateDirection != direction) rateSamples.clear()
         if (direction != BatteryStatsCalculator.Direction.UNKNOWN) lastRateDirection = direction
         rateSamples.add(BatteryStatsCalculator.TimedSample(
-            sample.timestampMillis, sample.levelPercent, sample.currentMicroAmps, sample.chargeCounterMicroAmpHours
+            sample.timestampMillis, sample.levelPercent, sample.currentMicroAmps,
+            sample.chargeCounterMicroAmpHours
         ))
         trimRateSamples(sample.timestampMillis)
         persistRateSamples()
         val rates = BatteryStatsCalculator.calculateWindowed(rateSamples, sample, charging)
 
-        val now = sample.timestampMillis
-        val elapsed = if (previousTimestamp > 0L) (now - previousTimestamp).coerceAtLeast(0L) else 0L
-        val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
+        val nowWall = sample.timestampMillis
         val nowElapsed = SystemClock.elapsedRealtime()
+        val elapsed = if (previousTimestamp > 0L) (nowWall - previousTimestamp).coerceAtLeast(0L) else 0L
+        val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
         val (onElapsed, offElapsed) = updateAndMeasureScreenTime(interactive, nowElapsed)
         val trackedElapsed = onElapsed + offElapsed
 
@@ -204,25 +207,20 @@ class BatteryMonitorService : Service() {
             thresholdResetTriggered = true
             rateSamples.clear()
         }
+
         if (charging == false && elapsed > 0L) {
-            // Attribute estimated battery percentage loss to the actual screen-on/off
-            // durations between samples. This is drain attribution, not a time-share.
+            // Prefer current×voltage→capacity-based rate when calibrated capacity is available.
+            // Only fall back to integer level drops when no current-based estimate exists.
             val currentBasedRate = rates.batteryPercentPerHour
             if (currentBasedRate != null && currentBasedRate.isFinite() && currentBasedRate in 0.0..500.0) {
                 activeDrainPercent += currentBasedRate * onElapsed / 3_600_000.0
                 idleDrainPercent += currentBasedRate * offElapsed / 3_600_000.0
             } else if (oldLevel != null && newLevel != null && oldLevel > newLevel &&
                 oldLevel - newLevel <= 10 && trackedElapsed > 0L) {
-                // Coarse fallback when current/capacity data is unavailable: split each
-                // observed whole-percent drop across the screen states in that interval.
                 val drop = (oldLevel - newLevel).toDouble()
                 activeDrainPercent += drop * onElapsed / trackedElapsed
                 idleDrainPercent += drop * offElapsed / trackedElapsed
             }
-        }
-        // Rate denominators must include only time spent discharging. Counting time
-        // while charging would dilute the FKM-style active/idle drain rates toward zero.
-        if (charging == false && elapsed > 0L) {
             activeDrainMillis += onElapsed
             idleDrainMillis += offElapsed
         }
@@ -232,7 +230,7 @@ class BatteryMonitorService : Service() {
             notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
         }.onFailure { DiagnosticLogger.error("Battery notification update failed", it) }
         previousLevel = newLevel
-        previousTimestamp = now
+        previousTimestamp = nowWall
         persistCounters()
     }
 
