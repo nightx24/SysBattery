@@ -5,8 +5,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.BatteryManager
-import rikka.shizuku.Shizuku
-import rikka.shizuku.ShizukuRemoteProcess
 import java.io.File
 import java.io.IOException
 
@@ -89,28 +87,8 @@ class BatterySysfsReader(context: Context) {
             } catch (_: SecurityException) {
                 // Try Shizuku only when the user has granted its permission.
             }
-            // Do not skip this fallback merely because the app UID cannot stat/read the node.
-            readSysfsWithShizuku(path)?.let { return it }
         }
         return null
     }
 
-    /**
-     * Optional fallback for devices where Android's app UID cannot read power_supply sysfs.
-     * Shizuku executes a fixed cat command only for paths from this class's hard-coded allowlist.
-     * No shell access is attempted unless Shizuku is running and the user granted permission.
-     */
-    private fun readSysfsWithShizuku(path: String): Long? {
-        if (!Shizuku.pingBinder()) return null
-        if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) return null
-        return try {
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", "cat '$path'"), null, null)
-            val value = process.inputStream.bufferedReader(Charsets.US_ASCII).use { it.readText().trim() }
-            val exitCode = process.waitFor()
-            if (exitCode == 0) value.toLongOrNull() else null
-        } catch (_: Exception) {
-            // Shizuku may be stopped, revoked, or unavailable on this device.
-            null
-        }
-    }
 }
