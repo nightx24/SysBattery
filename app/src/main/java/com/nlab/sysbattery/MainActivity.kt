@@ -208,9 +208,9 @@ private fun BatteryDashboard(
     val current = rates?.currentMilliAmpsMagnitude?.let { String.format(Locale.getDefault(), "%.0f mA", it) } ?: "—"
     val temp = sample?.temperatureTenthsCelsius?.let {
         val celsius = it / 10.0
-        val value = if (temperatureUnit == "Fahrenheit (°F)") celsius * 9.0 / 5.0 + 32.0 else celsius
-        val unit = if (temperatureUnit == "Fahrenheit (°F)") "°F" else "°C"
-        String.format(Locale.getDefault(), "%.1f %s", value, unit)
+        val fahrenheit = celsius * 9.0 / 5.0 + 32.0
+        if (temperatureUnit == "Fahrenheit (°F)") String.format(Locale.getDefault(), "%.1f °F", fahrenheit)
+        else String.format(Locale.getDefault(), "%.1f °C", celsius)
     } ?: "—"
     val voltage = sample?.voltageMilliVolts?.let { "$it mV" } ?: "—"
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
