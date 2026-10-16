@@ -142,6 +142,10 @@ class BatterySysfsReader(context: Context) {
         manager.getLongProperty(id).takeIf { it != Long.MIN_VALUE && it != 0L }
     } catch (_: RuntimeException) { null }
 
+    /**
+     * Root/Shizuku shell is a separate privileged source; direct File reads usually cannot read
+     * protected sysfs nodes under the app UID. Keep source selection explicit and validate output.
+     */
     private fun readSysfs(paths: List<String>): Long? {
         for (path in paths) {
             try {
@@ -150,9 +154,9 @@ class BatterySysfsReader(context: Context) {
                     file.readText(Charsets.US_ASCII).trim().toLongOrNull()?.let { return it }
                 }
             } catch (_: IOException) {
-                // Protected paths are not readable to a normal application UID.
+                // Continue to the next node.
             } catch (_: SecurityException) {
-                // Root or Shizuku integration must be implemented separately to access protected nodes.
+                // Continue to the next node.
             }
         }
         return null
