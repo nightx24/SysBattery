@@ -440,6 +440,18 @@ private fun BatteryDashboard(
         String.format(Locale.getDefault(), "%+.2f W", signed)
     } ?: "—"
     val cycleCount = sample?.cycleCount?.toString() ?: "Not reported"
+    val reportedFullCapacity = sample?.fullChargeCapacityMicroAmpHours
+    val estimatedFullCapacity = sample?.estimatedFullChargeCapacityMicroAmpHours
+    val displayedFullCapacity = reportedFullCapacity ?: estimatedFullCapacity
+    val fullCapacityText = displayedFullCapacity?.let {
+        val prefix = if (reportedFullCapacity != null) "" else "~"
+        prefix + String.format(Locale.getDefault(), "%.0f mAh", it / 1000.0)
+    } ?: "Not reported"
+    val healthEstimate = if (displayedFullCapacity != null &&
+        sample?.designCapacityMicroAmpHours != null && sample.designCapacityMicroAmpHours > 0L) {
+        String.format(Locale.getDefault(), "%.0f%%",
+            displayedFullCapacity * 100.0 / sample.designCapacityMicroAmpHours)
+    } else "Needs design capacity"
     val health = when (sample?.health) {
         android.os.BatteryManager.BATTERY_HEALTH_GOOD -> "Good"
         android.os.BatteryManager.BATTERY_HEALTH_OVERHEAT -> "Overheating"
@@ -581,13 +593,17 @@ private fun BatteryDashboard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 MetricCard("Power", power, "W", Modifier.weight(1f))
-                MetricCard("Health", health, "♥", Modifier.weight(1f))
+                MetricCard("Health status", health, "♥", Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 MetricCard("Cycle count", cycleCount, "↻", Modifier.weight(1f))
                 MetricCard("Charge counter", sample?.chargeCounterMicroAmpHours?.let {
                     String.format(Locale.getDefault(), "%.0f mAh", it / 1000.0)
                 } ?: "Not reported", "mAh", Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                MetricCard("Full charge capacity", fullCapacityText, "mAh", Modifier.weight(1f))
+                MetricCard("Health estimate", healthEstimate, "%", Modifier.weight(1f))
             }
             GlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
