@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.nlab.sysbattery.data.BatterySysfsReader
+import com.nlab.sysbattery.diagnostics.DiagnosticLogger
+import android.widget.Toast
 import com.nlab.sysbattery.data.AdvancedBatteryStatsReader
 import com.nlab.sysbattery.data.RootAccessReader
 import com.nlab.sysbattery.data.ShizukuBatteryStatsReader
@@ -59,6 +61,13 @@ class MainActivity : ComponentActivity() {
     private var shizukuStatus by mutableStateOf("Checking Shizuku…")
     private var shizukuFindings by mutableStateOf<List<RootBatteryStatsParser.Finding>>(emptyList())
     private var shizukuLoading by mutableStateOf(false)
+    private var showDiagnostics by mutableStateOf(false)
+    private val exportDiagnostics = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) runCatching {
+            contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(DiagnosticLogger.readLogs()) }
+            Toast.makeText(this, "Diagnostics exported", Toast.LENGTH_SHORT).show()
+        }.onFailure { DiagnosticLogger.error("Diagnostics export failed", it); Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show() }
+    }
     private var shizukuAuthorized by mutableStateOf(false)
     private var shizukuServiceBinding = false
     private var shizukuService: IBatteryStatsUserService? = null
@@ -107,6 +116,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        DiagnosticLogger.initialize(applicationContext)
+        DiagnosticLogger.info("MainActivity created")
         refreshShizukuStatus()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -166,6 +177,12 @@ class MainActivity : ComponentActivity() {
                     shizukuFindings = shizukuFindings,
                     shizukuLoading = shizukuLoading,
                     onRequestShizuku = { requestShizukuAccess() },
+                    onOpenDiagnostics = { showDiagnostics = true },
+                    onExportDiagnostics = { exportDiagnostics.launch("sysbattery-diagnostics.txt") },
+                    onClearDiagnostics = { DiagnosticLogger.clear(); DiagnosticLogger.info("Logs cleared by user") },
+                    diagnosticText = DiagnosticLogger.readLogs(),
+                    showDiagnostics = showDiagnostics,
+                    onDismissDiagnostics = { showDiagnostics = false },
                     onRefreshAdvanced = {
                         shizukuLoading = true
                         Thread {
