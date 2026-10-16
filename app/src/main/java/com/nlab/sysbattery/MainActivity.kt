@@ -34,6 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,15 +70,26 @@ class MainActivity : ComponentActivity() {
             val state by BatteryMonitorService.state.collectAsState()
             val prefs = getSharedPreferences("sysbattery", MODE_PRIVATE)
             var running by remember { mutableStateOf(prefs.getBoolean("monitor_enabled", false)) }
+            var themeMode by remember { mutableStateOf(prefs.getString("theme_mode", "System default") ?: "System default") }
+            var preferencesRevision by remember { mutableIntStateOf(0) }
             var advancedReport by remember { mutableStateOf<AdvancedBatteryStatsReader.Report?>(null) }
             var advancedError by remember { mutableStateOf<String?>(null) }
             var rootReport by remember { mutableStateOf<RootAccessReader.RootReport?>(null) }
             var rootLoading by remember { mutableStateOf(false) }
-            SysBatteryTheme {
+            SysBatteryTheme(themeMode) {
                 BatteryDashboard(
                     sample = state.sample, rates = state.rates, running = running, shizukuMessage = shizukuMessage,
                     onStart = { BatteryMonitorService.start(this); running = true },
                     onStop = { BatteryMonitorService.stop(this); running = false },
+                    onMonitorEnabledChange = { enabled ->
+                        if (enabled) {
+                            BatteryMonitorService.start(this)
+                            running = true
+                        } else {
+                            BatteryMonitorService.stop(this)
+                            running = false
+                        }
+                    },
                     onShizuku = {
                         when {
                             !Shizuku.pingBinder() -> shizukuMessage = "Shizuku is not running. Start it first."
@@ -113,6 +127,9 @@ class MainActivity : ComponentActivity() {
                         }.start()
                     },
                     settingsPrefs = prefs,
+                    onThemeModeChange = { themeMode = it },
+                    onPreferencesChanged = { preferencesRevision++ },
+                    preferencesRevision = preferencesRevision,
                     onRefreshAdvanced = {
                         try {
                             advancedReport = AdvancedBatteryStatsReader(this).read()
@@ -133,18 +150,31 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun SysBatteryTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    MaterialTheme(
-        colorScheme = if (dark) darkColorScheme(
-            primary = Color(0xFFB8C8FF), secondary = Color(0xFF8CE0D0),
-            background = Color(0xFF0A0F1E), surface = Color(0xFF171E30)
-        ) else lightColorScheme(
-            primary = Color(0xFF3459B8), secondary = Color(0xFF087F75),
-            background = Color(0xFFF2F5FC), surface = Color.White
-        ),
-        content = content
+private fun SysBatteryTheme(themeMode: String, content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val systemDark = isSystemInDarkTheme()
+    val dark = when (themeMode) {
+        "Light" -> false
+        "Dark" -> true
+        else -> systemDark
+    }
+    val fallbackScheme = if (dark) darkColorScheme(
+        primary = Color(0xFFB8C8FF), secondary = Color(0xFF8CE0D0),
+        background = Color(0xFF101318), surface = Color(0xFF191D23)
+    ) else lightColorScheme(
+        primary = Color(0xFF3459B8), secondary = Color(0xFF087F75),
+        background = Color(0xFFF7F7FF), surface = Color(0xFFFFFFFF)
     )
+    val scheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        try {
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        } catch (_: Exception) {
+            fallbackScheme
+        }
+    } else {
+        fallbackScheme
+    }
+    MaterialTheme(colorScheme = scheme, content = content)
 }
 
 @Composable
@@ -165,16 +195,25 @@ private fun BatteryDashboard(
     rootLoading: Boolean,
     onRefreshRoot: () -> Unit,
     onRefreshAdvanced: () -> Unit,
+    onMonitorEnabledChange: (Boolean) -> Unit,
+    onThemeModeChange: (String) -> Unit,
+    onPreferencesChanged: () -> Unit,
+    preferencesRevision: Int,
     settingsPrefs: android.content.SharedPreferences
 ) {
-    val dark = isSystemInDarkTheme()
-    val bg = if (dark) Color(0xFF090E1B) else Color(0xFFF1F4FC)
-    val accent = if (dark) Color(0xFF172747) else Color(0xFFDCE6FF)
     val level = sample?.levelPercent
+    val temperatureUnit = remember(preferencesRevision) {
+        settingsPrefs.getString("temperature_unit", "Celsius (°C)") ?: "Celsius (°C)"
+    }
     val current = rates?.currentMilliAmpsMagnitude?.let { String.format(Locale.getDefault(), "%.0f mA", it) } ?: "—"
-    val temp = sample?.temperatureTenthsCelsius?.let { String.format(Locale.getDefault(), "%.1f °C", it / 10.0) } ?: "—"
+    val temp = sample?.temperatureTenthsCelsius?.let {
+        val celsius = it / 10.0
+        val value = if (temperatureUnit == "Fahrenheit (°F)") celsius * 9.0 / 5.0 + 32.0 else celsius
+        val unit = if (temperatureUnit == "Fahrenheit (°F)") "°F" else "°C"
+        String.format(Locale.getDefault(), "%.1f %s", value, unit)
+    } ?: "—"
     val voltage = sample?.voltageMilliVolts?.let { "$it mV" } ?: "—"
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(bg, accent, bg)))) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
                 .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -333,15 +372,31 @@ private fun BatteryDashboard(
                 shizukuMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 Text("Source: ${sample?.source ?: "waiting for first sample"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            BatteryMonitorSettings(settingsPrefs)
+            BatteryMonitorSettings(
+                prefs = settingsPrefs,
+                running = running,
+                onMonitorEnabledChange = onMonitorEnabledChange,
+                onThemeModeChange = onThemeModeChange,
+                onPreferencesChanged = onPreferencesChanged,
+                preferencesRevision = preferencesRevision
+            )
             Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun BatteryMonitorSettings(prefs: android.content.SharedPreferences) {
-    var serviceEnabled by remember { mutableStateOf(prefs.getBoolean("monitor_enabled", false)) }
+private fun BatteryMonitorSettings(
+    prefs: android.content.SharedPreferences,
+    running: Boolean,
+    onMonitorEnabledChange: (Boolean) -> Unit,
+    onThemeModeChange: (String) -> Unit,
+    onPreferencesChanged: () -> Unit,
+    preferencesRevision: Int
+) {
+    val context = LocalContext.current
+    var serviceEnabled by remember { mutableStateOf(running) }
+    LaunchedEffect(running) { serviceEnabled = running }
     var resetAtThreshold by remember { mutableStateOf(prefs.getBoolean("reset_at_threshold", true)) }
     var resetOnPlug by remember { mutableStateOf(prefs.getBoolean("reset_on_plug", true)) }
     var resetOnReboot by remember { mutableStateOf(prefs.getBoolean("reset_on_reboot", true)) }
@@ -350,15 +405,21 @@ private fun BatteryMonitorSettings(prefs: android.content.SharedPreferences) {
     var showChargingPower by remember { mutableStateOf(prefs.getBoolean("show_charging_power", true)) }
     var threshold by remember { mutableFloatStateOf(prefs.getInt("reset_threshold_percent", 90).toFloat()) }
     var warning by remember { mutableFloatStateOf(prefs.getInt("idle_warning_percent", 5).toFloat()) }
-    var temperatureUnit by remember { mutableStateOf(prefs.getString("temperature_unit", "Celsius (°C)") ?: "Celsius (°C)") }
-    var theme by remember { mutableStateOf(prefs.getString("theme_mode", "System default") ?: "System default") }
+    var temperatureUnit by remember(preferencesRevision) {
+        mutableStateOf(prefs.getString("temperature_unit", "Celsius (°C)") ?: "Celsius (°C)")
+    }
+    var theme by remember(preferencesRevision) {
+        mutableStateOf(prefs.getString("theme_mode", "System default") ?: "System default")
+    }
     var showResetConfirmation by remember { mutableStateOf(false) }
     fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
     GlassCard {
         Text("Monitor settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("Customize tracking, reset rules, notifications and appearance.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         SettingSwitch("Battery monitor service", "Keep collecting while the app is in the background.", serviceEnabled) {
-            serviceEnabled = it; saveBoolean("monitor_enabled", it)
+            serviceEnabled = it
+            saveBoolean("monitor_enabled", it)
+            onMonitorEnabledChange(it)
         }
         SettingSwitch("Reset stats at battery threshold", "Reset session counters when charging reaches the selected level.", resetAtThreshold) {
             resetAtThreshold = it; saveBoolean("reset_at_threshold", it)
@@ -385,9 +446,11 @@ private fun BatteryMonitorSettings(prefs: android.content.SharedPreferences) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = temperatureUnit == "Celsius (°C)", onClick = {
                 temperatureUnit = "Celsius (°C)"; prefs.edit().putString("temperature_unit", temperatureUnit).apply()
+                onPreferencesChanged()
             }, label = { Text("°C") })
             FilterChip(selected = temperatureUnit == "Fahrenheit (°F)", onClick = {
                 temperatureUnit = "Fahrenheit (°F)"; prefs.edit().putString("temperature_unit", temperatureUnit).apply()
+                onPreferencesChanged()
             }, label = { Text("°F") })
         }
         SettingSwitch("Show battery percentage in notification", "Enable the percentage indicator preference.", showBatteryIcon) {
@@ -401,7 +464,10 @@ private fun BatteryMonitorSettings(prefs: android.content.SharedPreferences) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             listOf("System default", "Light", "Dark").forEach { mode ->
                 FilterChip(selected = theme == mode, onClick = {
-                    theme = mode; prefs.edit().putString("theme_mode", mode).apply()
+                    theme = mode
+                    prefs.edit().putString("theme_mode", mode).apply()
+                    onThemeModeChange(mode)
+                    onPreferencesChanged()
                 }, label = { Text(mode) })
             }
         }
@@ -415,10 +481,9 @@ private fun BatteryMonitorSettings(prefs: android.content.SharedPreferences) {
                 text = { Text("This clears SysBattery's locally stored session counters. Android system battery history is not modified.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        prefs.edit().remove("screen_on_ms").remove("screen_off_ms")
-                            .remove("active_drain_percent").remove("idle_drain_percent")
-                            .remove("active_drain_ms").remove("idle_drain_ms").apply()
+                        BatteryMonitorService.resetStoredCounters(context)
                         showResetConfirmation = false
+                        onPreferencesChanged()
                     }) { Text("Reset") }
                 },
                 dismissButton = { TextButton(onClick = { showResetConfirmation = false }) { Text("Cancel") } }
@@ -440,13 +505,12 @@ private fun SettingSwitch(title: String, description: String, checked: Boolean, 
 
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
-    val dark = isSystemInDarkTheme()
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = if (dark) .78f else .82f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .35f))
     ) {
         Column(Modifier.padding(19.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
