@@ -32,9 +32,6 @@ import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.BatteryFull
 import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.DeviceThermostat
-import androidx.compose.material.icons.rounded.ElectricBolt
-import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Security
@@ -1075,10 +1072,10 @@ private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
 private fun MetricCard(title: String, value: String, symbol: String, modifier: Modifier = Modifier) {
     val icon = when (title.lowercase(Locale.ROOT)) {
         "current" -> Icons.Rounded.Bolt
-        "temperature" -> Icons.Rounded.DeviceThermostat
-        "voltage" -> Icons.Rounded.ElectricBolt
-        "drain rate" -> Icons.Rounded.BatteryAlert
-        "power" -> Icons.Rounded.ElectricBolt
+        "temperature" -> null
+        "voltage" -> Icons.Rounded.Bolt
+        "drain rate" -> Icons.Rounded.BatteryFull
+        "power" -> Icons.Rounded.Bolt
         "capacity" -> Icons.Rounded.BatteryFull
         else -> null
     }
