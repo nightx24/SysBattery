@@ -48,6 +48,7 @@ class BatteryMonitorService : Service() {
     private var idleDrainMillis = 0L
     private var previousCharging: Boolean? = null
     private var thresholdResetTriggered = false
+    private val screenStateLock = Any()
     private var screenStateInteractive: Boolean? = null
     private var screenStateSinceElapsed = 0L
     private val rateSamples = mutableListOf<BatteryStatsCalculator.TimedSample>()
@@ -116,8 +117,7 @@ class BatteryMonitorService : Service() {
         createNotificationChannel()
         restoreRateSamples()
         registerScreenStateReceiver()
-        screenStateInteractive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-        screenStateSinceElapsed = SystemClock.elapsedRealtime()
+        updateScreenState((getSystemService(POWER_SERVICE) as PowerManager).isInteractive, SystemClock.elapsedRealtime())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -187,20 +187,9 @@ class BatteryMonitorService : Service() {
 
         val now = sample.timestampMillis
         val elapsed = if (previousTimestamp > 0L) (now - previousTimestamp).coerceAtLeast(0L) else 0L
-        val screenOnBefore = screenOnMillis
-        val screenOffBefore = screenOffMillis
         val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
         val nowElapsed = SystemClock.elapsedRealtime()
-        if (screenStateInteractive == null) {
-            screenStateInteractive = interactive
-            screenStateSinceElapsed = nowElapsed
-        } else if (screenStateInteractive != interactive) {
-            updateScreenState(interactive, nowElapsed)
-        } else {
-            accumulateScreenTime(nowElapsed)
-        }
-        val onElapsed = (screenOnMillis - screenOnBefore).coerceAtLeast(0L)
-        val offElapsed = (screenOffMillis - screenOffBefore).coerceAtLeast(0L)
+        val (onElapsed, offElapsed) = updateAndMeasureScreenTime(interactive, nowElapsed)
         val trackedElapsed = onElapsed + offElapsed
 
         val oldLevel = previousLevel
@@ -262,12 +251,35 @@ class BatteryMonitorService : Service() {
     }
 
     private fun updateScreenState(interactive: Boolean, now: Long = SystemClock.elapsedRealtime()) {
-        accumulateScreenTime(now)
+        synchronized(screenStateLock) { updateScreenStateLocked(interactive, now) }
+    }
+
+    private fun updateAndMeasureScreenTime(interactive: Boolean, now: Long): Pair<Long, Long> =
+        synchronized(screenStateLock) {
+            val onBefore = screenOnMillis
+            val offBefore = screenOffMillis
+            when (screenStateInteractive) {
+                null -> {
+                    screenStateInteractive = interactive
+                    screenStateSinceElapsed = now
+                }
+                interactive -> accumulateScreenTimeLocked(now)
+                else -> updateScreenStateLocked(interactive, now)
+            }
+            Pair((screenOnMillis - onBefore).coerceAtLeast(0L), (screenOffMillis - offBefore).coerceAtLeast(0L))
+        }
+
+    private fun updateScreenStateLocked(interactive: Boolean, now: Long) {
+        accumulateScreenTimeLocked(now)
         screenStateInteractive = interactive
         screenStateSinceElapsed = now
     }
 
     private fun accumulateScreenTime(now: Long = SystemClock.elapsedRealtime()) {
+        synchronized(screenStateLock) { accumulateScreenTimeLocked(now) }
+    }
+
+    private fun accumulateScreenTimeLocked(now: Long) {
         val since = screenStateSinceElapsed
         if (since <= 0L || now <= since) {
             screenStateSinceElapsed = now
@@ -326,9 +338,13 @@ class BatteryMonitorService : Service() {
     }
 
     private fun resetCounters() {
-        accumulateScreenTime()
-        screenOnMillis = 0L
-        screenOffMillis = 0L
+        synchronized(screenStateLock) {
+            val now = SystemClock.elapsedRealtime()
+            accumulateScreenTimeLocked(now)
+            screenOnMillis = 0L
+            screenOffMillis = 0L
+            screenStateSinceElapsed = now
+        }
         activeDrainPercent = 0.0
         idleDrainPercent = 0.0
         activeDrainMillis = 0L
