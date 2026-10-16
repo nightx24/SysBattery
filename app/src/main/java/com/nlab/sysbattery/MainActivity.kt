@@ -17,6 +17,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -44,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -388,6 +390,19 @@ private fun BatteryDashboard(
     settingsPrefs: android.content.SharedPreferences
 ) {
     val level = sample?.levelPercent
+    // Keep a small, session-local history. Sample on meaningful changes or every 30 seconds.
+    val batteryHistory = remember { mutableStateListOf<Pair<Long, Int>>() }
+    LaunchedEffect(sample?.timestampMillis, level) {
+        val currentLevel = level
+        if (currentLevel != null) {
+            val timestamp = sample?.timestampMillis ?: System.currentTimeMillis()
+            val previous = batteryHistory.lastOrNull()
+            if (previous == null || previous.second != currentLevel || timestamp - previous.first >= 30_000L) {
+                batteryHistory.add(timestamp to currentLevel.coerceIn(0, 100))
+                while (batteryHistory.size > 36) batteryHistory.removeAt(0)
+            }
+        }
+    }
     val temperatureUnit = remember(preferencesRevision) {
         settingsPrefs.getString("temperature_unit", "Celsius (°C)") ?: "Celsius (°C)"
     }
@@ -469,6 +484,61 @@ private fun BatteryDashboard(
                     progress = { ((level ?: 0).coerceIn(0, 100)) / 100f },
                     modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape)
                 )
+            }
+            GlassCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Battery history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (batteryHistory.size < 2) "Collecting session samples…" else "${batteryHistory.size} samples · session only",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(level?.let { "$it%" } ?: "—", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+                if (batteryHistory.size >= 2) {
+                    Canvas(Modifier.fillMaxWidth().height(92.dp)) {
+                        val values = batteryHistory.map { it.second.toFloat() }
+                        val low = (values.minOrNull() ?: 0f).coerceAtMost(100f)
+                        val high = (values.maxOrNull() ?: 100f).coerceAtLeast(0f)
+                        val span = (high - low).coerceAtLeast(2f)
+                        val inset = 8.dp.toPx()
+                        val width = (size.width - inset * 2).coerceAtLeast(1f)
+                        val height = (size.height - inset * 2).coerceAtLeast(1f)
+                        repeat(3) { index ->
+                            val y = inset + height * index / 2f
+                            drawLine(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+                                start = Offset(inset, y),
+                                end = Offset(size.width - inset, y),
+                                strokeWidth = 1.dp.toPx()
+                            )
+                        }
+                        val points = values.mapIndexed { index, value ->
+                            val x = inset + width * index / (values.size - 1).coerceAtLeast(1)
+                            val y = inset + height * ((high - value) / span).coerceIn(0f, 1f)
+                            Offset(x, y)
+                        }
+                        points.zipWithNext().forEach { (start, end) ->
+                            drawLine(
+                                color = MaterialTheme.colorScheme.primary,
+                                start = start,
+                                end = end,
+                                strokeWidth = 3.dp.toPx()
+                            )
+                        }
+                        points.lastOrNull()?.let { point ->
+                            drawCircle(MaterialTheme.colorScheme.primary, radius = 4.dp.toPx(), center = point)
+                        }
+                    }
+                } else {
+                    Text("History appears as readings arrive while monitoring is active.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             Text("Live readings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
