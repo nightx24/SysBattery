@@ -692,6 +692,7 @@ private fun BatteryDashboard(
                         }
                         Text("BATTERY_STATS", style = MaterialTheme.typography.bodyMedium)
                     }
+                    Text("PERMISSION CHECKS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
                     AdbCommandRow(
                         title = "Check Usage Access",
                         description = "Read-only check. Expected result includes GET_USAGE_STATS: allow.",
@@ -707,6 +708,7 @@ private fun BatteryDashboard(
                         description = "May be blocked on production devices. If it fails, enable Usage Access from Android Settings.",
                         command = "adb shell appops set com.nlab.sysbattery GET_USAGE_STATS allow"
                     )
+                    Text("BACKGROUND BEHAVIOR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
                     AdbCommandRow(
                         title = "Allow background monitoring in Doze",
                         description = "Optional. This changes battery-optimization behavior; you can undo it with the remove command below.",
@@ -717,6 +719,7 @@ private fun BatteryDashboard(
                         description = "Undo the optional Doze allowlist change.",
                         command = "adb shell cmd deviceidle whitelist -com.nlab.sysbattery"
                     )
+                    Text("READ-ONLY DIAGNOSTICS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
                     AdbCommandRow(
                         title = "Read battery state",
                         description = "Diagnostic output from Android; does not grant permission to SysBattery.",
@@ -988,16 +991,23 @@ private fun AdbCommandRow(
                     Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                FilledTonalIconButton(
+                FilledTonalButton(
                     onClick = {
                         val clipboard = context.getSystemService(ClipboardManager::class.java)
                         clipboard?.setPrimaryClip(ClipData.newPlainText(title, command))
                         copied = true
                         Toast.makeText(context, "Command copied", Toast.LENGTH_SHORT).show()
                     },
-                    modifier = Modifier.size(42.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier.height(40.dp)
                 ) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy $title command", modifier = Modifier.size(18.dp))
+                    Icon(
+                        if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (copied) "Copied" else "Copy", style = MaterialTheme.typography.labelMedium)
                 }
             }
             Surface(
