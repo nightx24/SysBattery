@@ -80,13 +80,15 @@ class BatterySysfsReader(context: Context) {
         for (path in paths) {
             try {
                 val file = File(path)
-                if (!file.isFile || !file.canRead()) continue
-                file.readText(Charsets.US_ASCII).trim().toLongOrNull()?.let { return it }
+                if (file.isFile && file.canRead()) {
+                    file.readText(Charsets.US_ASCII).trim().toLongOrNull()?.let { return it }
+                }
             } catch (_: IOException) {
                 // A restricted node may still be readable through an explicitly authorized Shizuku shell.
             } catch (_: SecurityException) {
                 // Try Shizuku only when the user has granted its permission.
             }
+            // Do not skip this fallback merely because the app UID cannot stat/read the node.
             readSysfsWithShizuku(path)?.let { return it }
         }
         return null
