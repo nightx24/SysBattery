@@ -15,6 +15,7 @@ android {
     }
     buildFeatures {
         compose = true
+        aidl = true
     }
     defaultConfig {
         applicationId = "com.nlab.sysbattery"
