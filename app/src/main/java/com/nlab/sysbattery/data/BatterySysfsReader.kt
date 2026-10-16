@@ -1,5 +1,7 @@
 package com.nlab.sysbattery.data
 
+import com.nlab.sysbattery.diagnostics.DiagnosticLogger
+
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
