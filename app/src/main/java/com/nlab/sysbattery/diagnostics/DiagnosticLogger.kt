@@ -35,7 +35,7 @@ object DiagnosticLogger {
                 }
                 previous?.uncaughtException(thread, error)
             }
-            write("INFO", "Diagnostics initialized; app=${BuildConfig.VERSION_NAME} sdk=${Build.VERSION.SDK_INT} device=${Build.MANUFACTURER} ${Build.MODEL}")
+            write("INFO", "Diagnostics initialized; package=${appContext.packageName} sdk=${Build.VERSION.SDK_INT} device=${Build.MANUFACTURER} ${Build.MODEL}")
         }
     }
 
