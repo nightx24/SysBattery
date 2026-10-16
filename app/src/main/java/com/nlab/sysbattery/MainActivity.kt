@@ -371,6 +371,7 @@ private fun BatteryDashboard(
     } ?: "—"
     val voltage = sample?.voltageMilliVolts?.let { "$it mV" } ?: "—"
     var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedOptionsPage by remember { mutableIntStateOf(0) }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
@@ -446,6 +447,13 @@ private fun BatteryDashboard(
             }
             }
             if (selectedTab == 2) {
+                PrimaryTabRow(selectedTabIndex = selectedOptionsPage, modifier = Modifier.fillMaxWidth()) {
+                    listOf("General", "Access", "Diagnostics").forEachIndexed { index, label ->
+                        Tab(selected = selectedOptionsPage == index, onClick = { selectedOptionsPage = index }, text = { Text(label) })
+                    }
+                }
+            }
+            if (selectedTab == 2 && selectedOptionsPage == 0) {
             GlassCard {
                 Text("OEM background settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -454,7 +462,7 @@ private fun BatteryDashboard(
                 )
             }
             }
-            if (selectedTab == 1) {
+            if (selectedTab == 2 && selectedOptionsPage == 1) {
             GlassCard {
                 Text("Advanced battery statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -470,7 +478,7 @@ private fun BatteryDashboard(
                 )
             }
             }
-            if (selectedTab == 1) {
+            if (selectedTab == 2 && selectedOptionsPage == 1) {
             GlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -502,7 +510,7 @@ private fun BatteryDashboard(
                 }
             }
             GlassCard {
-                Text("Battery attribution & app activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("App usage estimates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Reads Android BatteryUsageStats when available and UsageStats for the last 24 hours. App mAh is Android's estimate, not a direct electrical measurement; unsupported or denied data is reported rather than fabricated.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
@@ -526,7 +534,7 @@ private fun BatteryDashboard(
                 }
             }
             }
-            if (selectedTab == 2) {
+            if (selectedTab == 2 && selectedOptionsPage == 1) {
             GlassCard {
                 Text("Root access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -570,7 +578,7 @@ private fun BatteryDashboard(
                 Text("Source: ${sample?.source ?: "waiting for first sample"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             }
-            if (selectedTab == 2) {
+            if (selectedTab == 2 && selectedOptionsPage == 0) {
             BatteryMonitorSettings(
                 prefs = settingsPrefs,
                 running = running,
@@ -580,7 +588,7 @@ private fun BatteryDashboard(
                 preferencesRevision = preferencesRevision
             )
             }
-            if (selectedTab == 2) {
+            if (selectedTab == 2 && selectedOptionsPage == 2) {
                 GlassCard {
                     Text("Logs & diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("Local crash and app diagnostics logs. Nothing is uploaded automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
