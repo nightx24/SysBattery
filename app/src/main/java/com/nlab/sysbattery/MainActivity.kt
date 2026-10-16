@@ -24,6 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BatteryChargingFull
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.BatteryFull
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -390,7 +393,7 @@ private fun BatteryDashboard(
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+                .verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -409,7 +412,7 @@ private fun BatteryDashboard(
                 }
             }
             PrimaryTabRow(selectedTabIndex = selectedTab, modifier = Modifier.fillMaxWidth()) {
-                listOf("Status", "App usage", "Options").forEachIndexed { index, label ->
+                listOf("Status", "App usage", "Settings").forEachIndexed { index, label ->
                     Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(label) })
                 }
             }
@@ -493,13 +496,11 @@ private fun BatteryDashboard(
 
             }
             if (selectedTab == 2) {
-                PrimaryTabRow(selectedTabIndex = selectedOptionsPage, modifier = Modifier.fillMaxWidth()) {
-                    listOf("General", "Access", "Diagnostics").forEachIndexed { index, label ->
-                        Tab(selected = selectedOptionsPage == index, onClick = { selectedOptionsPage = index }, text = { Text(label) })
-                    }
-                }
+                Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text("Preferences, permissions and diagnostics", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("PREFERENCES", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, letterSpacing = 1.4.sp)
             }
-            if (selectedTab == 2 && selectedOptionsPage == 0) {
+            if (selectedTab == 2) {
             GlassCard {
                 Text("OEM background settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -508,7 +509,7 @@ private fun BatteryDashboard(
                 )
             }
             }
-            if (selectedTab == 2 && selectedOptionsPage == 1) {
+            if (selectedTab == 2) {
             GlassCard {
                 Text("Advanced battery statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -609,7 +610,7 @@ private fun BatteryDashboard(
                 preferencesRevision = preferencesRevision
             )
             }
-            if (selectedTab == 2 && selectedOptionsPage == 2) {
+            if (selectedTab == 2) {
                 GlassCard {
                     Text("Logs & diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("Local crash and app diagnostics logs. Nothing is uploaded automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -617,6 +618,10 @@ private fun BatteryDashboard(
                     OutlinedButton(onClick = onExportDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Export logs…") }
                     OutlinedButton(onClick = onClearDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Clear logs") }
                 }
+            }
+            if (selectedTab == 2) {
+                Spacer(Modifier.height(2.dp))
+                Text("ADVANCED ACCESS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, letterSpacing = 1.4.sp)
             }
             if (showDiagnostics) {
                 AlertDialog(
@@ -632,6 +637,12 @@ private fun BatteryDashboard(
                 )
             }
             if (selectedTab == 0) Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        NavigationBar(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(), containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f), tonalElevation = 6.dp) {
+            listOf("Status", "App usage", "Settings").forEachIndexed { index, label ->
+                val icon = when (index) { 0 -> Icons.Rounded.Home; 1 -> Icons.Rounded.Apps; else -> Icons.Rounded.Settings }
+                NavigationBarItem(selected = selectedTab == index, onClick = { selectedTab = index }, icon = { Icon(icon, contentDescription = label) }, label = { Text(label) }, alwaysShowLabel = true)
+            }
         }
     }
 }
