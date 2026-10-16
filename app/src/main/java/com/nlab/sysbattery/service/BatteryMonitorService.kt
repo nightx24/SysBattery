@@ -205,16 +205,20 @@ class BatteryMonitorService : Service() {
             thresholdResetTriggered = true
             rateSamples.clear()
         }
-        if (oldLevel != null && newLevel != null && charging != true && oldLevel > newLevel &&
-            oldLevel - newLevel <= 10 && elapsed > 0L) {
-            val drop = (oldLevel - newLevel).toDouble()
-            if (trackedElapsed > 0L) {
+        if (charging == false && elapsed > 0L) {
+            // Attribute estimated battery percentage loss to the actual screen-on/off
+            // durations between samples. This is drain attribution, not a time-share.
+            val currentBasedRate = rates.batteryPercentPerHour
+            if (currentBasedRate != null && currentBasedRate.isFinite() && currentBasedRate in 0.0..500.0) {
+                activeDrainPercent += currentBasedRate * onElapsed / 3_600_000.0
+                idleDrainPercent += currentBasedRate * offElapsed / 3_600_000.0
+            } else if (oldLevel != null && newLevel != null && oldLevel > newLevel &&
+                oldLevel - newLevel <= 10 && trackedElapsed > 0L) {
+                // Coarse fallback when current/capacity data is unavailable: split each
+                // observed whole-percent drop across the screen states in that interval.
+                val drop = (oldLevel - newLevel).toDouble()
                 activeDrainPercent += drop * onElapsed / trackedElapsed
                 idleDrainPercent += drop * offElapsed / trackedElapsed
-            } else if (screenStateInteractive == true) {
-                activeDrainPercent += drop
-            } else {
-                idleDrainPercent += drop
             }
         }
         if (elapsed > 0L) {
