@@ -411,17 +411,59 @@ private fun BatteryDashboard(
             verticalArrangement = Arrangement.spacedBy(15.dp)
         ) {
             if (selectedTab == 0) {
-            GlassCard {
-                Text("BATTERY LEVEL", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, letterSpacing = 1.6.sp)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(level?.toString() ?: "—", fontSize = 56.sp, fontWeight = FontWeight.Bold)
-                            if (level != null) Text("%", fontSize = 24.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 9.dp))
-                        }
-                        Text(rates?.direction?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Waiting for readings", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Battery overview", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("Live device telemetry", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = if (running) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(Modifier.size(7.dp).background(if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
+                        Text(if (running) "MONITORING" else "PAUSED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+                            color = if (running) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Icon(Icons.Rounded.BatteryFull, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(66.dp))
+                }
+            }
+            GlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("BATTERY LEVEL", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, letterSpacing = 1.4.sp)
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(level?.toString() ?: "—", fontSize = 58.sp, fontWeight = FontWeight.Bold, lineHeight = 60.sp)
+                            if (level != null) Text("%", fontSize = 24.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 8.dp))
+                        }
+                        Text(
+                            when (rates?.direction) {
+                                BatteryStatsCalculator.Direction.CHARGING -> "Charging"
+                                BatteryStatsCalculator.Direction.DISCHARGING -> "On battery"
+                                else -> "Waiting for readings"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
+                    ) {
+                        Icon(
+                            if (rates?.direction == BatteryStatsCalculator.Direction.CHARGING) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(18.dp).size(48.dp)
+                        )
+                    }
                 }
                 LinearProgressIndicator(
                     progress = { ((level ?: 0).coerceIn(0, 100)) / 100f },
