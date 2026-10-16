@@ -101,8 +101,8 @@ class BatteryMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null && !getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_MONITOR_ENABLED, false)) {
-            DiagnosticLogger.info("Battery monitor service stopping")
-        monitorJob?.cancel()
+            DiagnosticLogger.info("Sticky restart ignored because monitor is disabled")
+            monitorJob?.cancel()
             stopForeground(true)
             stopSelf(startId)
             return START_NOT_STICKY
@@ -312,6 +312,7 @@ class BatteryMonitorService : Service() {
     }
 
     override fun onDestroy() {
+        DiagnosticLogger.info("Battery monitor service destroyed")
         monitorJob?.cancel()
         scope.cancel()
         super.onDestroy()
