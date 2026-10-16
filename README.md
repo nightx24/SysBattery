@@ -42,6 +42,12 @@ The app also provides a shortcut to Android's **Usage Access** settings. Dependi
 
 These permissions are only access prerequisites. **They do not automatically create FKM-style per-app mAh attribution.** UsageStats can report app activity time, while battery attribution requires accessible BatteryStats data and supported APIs/permissions. Per-app energy attribution, wake-lock breakdowns, component power estimates, and FKM-equivalent history remain future work until implemented and validated on real devices. Do not treat usage duration as energy consumption.
 
+## Rooted-device support
+
+On rooted devices, the dashboard's **Check root & read system stats** action requests access through the installed `su` provider (for example, Magisk). Approve or deny that request in the superuser manager. If granted, SysBattery reads the output of the read-only commands `dumpsys batterystats --charged` and `dumpsys power` for diagnostics. The command output is capped before it is shown in the UI.
+
+Root access is optional. Denying it does not affect standard battery monitoring. This first root backend exposes system diagnostics; it does not yet parse every vendor's battery-history format into validated deep-sleep percentages, wake-lock summaries or per-app mAh charts. Those metrics must be parsed from the device's actual output and checked against known system reports before being presented as calculated results.
+
 ## Notes and limitations
 
 - The default sampling interval is 10 seconds.
