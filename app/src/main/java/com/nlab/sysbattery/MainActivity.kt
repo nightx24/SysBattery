@@ -244,6 +244,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         usageAccessGranted = hasUsageAccess()
+        batteryStatsPermissionGranted = hasBatteryStatsPermission()
         refreshShizukuStatus()
     }
 
