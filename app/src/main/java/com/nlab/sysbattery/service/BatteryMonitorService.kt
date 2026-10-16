@@ -135,50 +135,51 @@ class BatteryMonitorService : Service() {
     }
 
     private fun sampleAndPublish() {
-                val sample = reader.readSnapshot()
-                val charging = batteryStatus()
-                val preferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                if (preferences.getBoolean("reset_counters_requested", false)) {
-                    resetCounters()
-                    preferences.edit().putBoolean("reset_counters_requested", false).apply()
-                }
-                if (previousCharging == false && charging == true &&
-                    preferences.getBoolean("reset_on_plug", true)) {
-                    resetCounters()
-                    thresholdResetTriggered = false
-                }
-                if (charging != null) previousCharging = charging
-                val rates = BatteryStatsCalculator.calculate(previous, sample, charging)
-                val now = sample.timestampMillis
-                val elapsed = if (previousTimestamp > 0L) (now - previousTimestamp).coerceAtLeast(0L) else 0L
-                val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-                if (interactive) screenOnMillis += elapsed else screenOffMillis += elapsed
-                val oldLevel = previousLevel
-                val newLevel = sample.levelPercent
-                val resetAtThreshold = preferences.getBoolean("reset_at_threshold", true)
-                val threshold = preferences.getInt("reset_threshold_percent", 90).coerceIn(50, 100)
-                if (charging != true || newLevel == null || newLevel < threshold) {
-                    thresholdResetTriggered = false
-                } else if (resetAtThreshold && !thresholdResetTriggered) {
-                    resetCounters()
-                    thresholdResetTriggered = true
-                }
-                if (oldLevel != null && newLevel != null && newLevel < oldLevel && charging != true) {
-                    val drop = (oldLevel - newLevel).toDouble()
-                    if (interactive) activeDrainPercent += drop else idleDrainPercent += drop
-                }
-                if (interactive) activeDrainMillis += elapsed else idleDrainMillis += elapsed
+        val sample = reader.readSnapshot()
+        val charging = batteryStatus()
+        val preferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (preferences.getBoolean("reset_counters_requested", false)) {
+            resetCounters()
+            preferences.edit().putBoolean("reset_counters_requested", false).apply()
+        }
+        if (previousCharging == false && charging == true &&
+            preferences.getBoolean("reset_on_plug", true)) {
+            resetCounters()
+            thresholdResetTriggered = false
+        }
+        if (charging != null) previousCharging = charging
+        val rates = BatteryStatsCalculator.calculate(previous, sample, charging)
+        val now = sample.timestampMillis
+        val elapsed = if (previousTimestamp > 0L) (now - previousTimestamp).coerceAtLeast(0L) else 0L
+        val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
+        if (interactive) screenOnMillis += elapsed else screenOffMillis += elapsed
+        val oldLevel = previousLevel
+        val newLevel = sample.levelPercent
+        val resetAtThreshold = preferences.getBoolean("reset_at_threshold", true)
+        val threshold = preferences.getInt("reset_threshold_percent", 90).coerceIn(50, 100)
+        if (charging != true || newLevel == null || newLevel < threshold) {
+            thresholdResetTriggered = false
+        } else if (resetAtThreshold && !thresholdResetTriggered) {
+            resetCounters()
+            thresholdResetTriggered = true
+        }
+        if (oldLevel != null && newLevel != null && newLevel < oldLevel && charging != true) {
+            val drop = (oldLevel - newLevel).toDouble()
+            if (interactive) activeDrainPercent += drop else idleDrainPercent += drop
+        }
+        if (interactive) activeDrainMillis += elapsed else idleDrainMillis += elapsed
 
-                mutableState.value = MonitorState(sample, rates)
-                runCatching {
-                    notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
-                }.onFailure { DiagnosticLogger.error("Battery notification update failed", it) }
-                previous = BatteryStatsCalculator.PreviousSample(sample.timestampMillis,
-                    sample.levelPercent, sample.currentMicroAmps, sample.chargeCounterMicroAmpHours)
-                previousLevel = newLevel
-                previousTimestamp = now
-                persistCounters()
-
+        mutableState.value = MonitorState(sample, rates)
+        runCatching {
+            notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
+        }.onFailure { DiagnosticLogger.error("Battery notification update failed", it) }
+        previous = BatteryStatsCalculator.PreviousSample(
+            sample.timestampMillis, sample.levelPercent, sample.currentMicroAmps,
+            sample.chargeCounterMicroAmpHours
+        )
+        previousLevel = newLevel
+        previousTimestamp = now
+        persistCounters()
     }
 
     private fun resetCounters() {
