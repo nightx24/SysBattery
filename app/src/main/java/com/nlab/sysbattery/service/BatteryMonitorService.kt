@@ -445,7 +445,13 @@ class BatteryMonitorService : Service() {
             val unit = if (temperatureUnit == "Fahrenheit (°F)") "°F" else "°C"
             String.format(Locale.getDefault(), "%.1f%s", value, unit)
         }
-        val current = if (showChargingPower) rates?.currentMilliAmpsMagnitude else null
+        // Prefer the smoothed rate estimate, but don't hide the live current when
+        // the rate calculator has not collected enough samples yet.
+        val current = if (showChargingPower) {
+            rates?.currentMilliAmpsMagnitude
+                ?: sample?.currentMilliAmpsSigned?.let { kotlin.math.abs(it) }
+                    ?.takeIf { it.isFinite() && it in 1.0..20_000.0 }
+        } else null
         val signedCurrent = current?.let { if (charging == false) -it else it }
         val powerWatts = if (showChargingPower) rates?.powerWattsMagnitude else null
         val signedPower = powerWatts?.let { if (charging == false) -it else it }
