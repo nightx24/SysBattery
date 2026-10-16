@@ -14,6 +14,7 @@ class RootAccessReader {
         val identity: String,
         val batteryStats: String?,
         val powerState: String?,
+        val findings: List<RootBatteryStatsParser.Finding>,
         val error: String?
     )
 
@@ -23,7 +24,7 @@ class RootAccessReader {
         val rooted = identityResult.exitCode == 0 &&
             (identity.contains("uid=0") || identity.contains("gid=0"))
         if (!rooted) {
-            return RootReport(false, identity.ifBlank { "su unavailable or root denied" }, null, null,
+            return RootReport(false, identity.ifBlank { "su unavailable or root denied" }, null, null, emptyList(),
                 identityResult.error ?: "Root access was not granted. Install/configure Magisk or another su provider and approve the prompt.")
         }
         val battery = runRootCommand("dumpsys batterystats --charged | head -c 24000")
@@ -33,6 +34,7 @@ class RootAccessReader {
             identity = identity,
             batteryStats = battery.output.take(MAX_OUTPUT),
             powerState = power.output.take(MAX_OUTPUT),
+            findings = RootBatteryStatsParser.parse(battery.output),
             error = listOfNotNull(
                 battery.error?.let { "BatteryStats: $it" },
                 power.error?.let { "Power state: $it" }
