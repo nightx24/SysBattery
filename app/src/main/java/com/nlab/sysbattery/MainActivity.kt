@@ -35,8 +35,11 @@ import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -529,8 +532,13 @@ private fun BatteryDashboard(
                         Text("ADB tools and permission status", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                GlassCard {
-                    Text("ADB setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                SettingsSection(
+                    title = "ADB tools",
+                    subtitle = "Copy commands for diagnostics and access setup",
+                    icon = { Icon(Icons.Rounded.Bolt, contentDescription = null) },
+                    initiallyExpanded = false
+                ) {
+                    Text("Optional PC commands for extra diagnostics. Connect your phone with USB debugging enabled, approve the computer, then run copied commands in Fedora's terminal.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     Text("Optional PC commands for extra diagnostics. Connect your phone with USB debugging enabled, approve the computer, then run copied commands in Fedora's terminal.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(shape = CircleShape, color = if (batteryStatsPermissionGranted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
@@ -577,10 +585,15 @@ private fun BatteryDashboard(
                 }
             }
             if (selectedTab == 2) {
-            GlassCard {
+            SettingsSection(
+                title = "Shizuku access",
+                subtitle = shizukuStatus,
+                icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
+                initiallyExpanded = false
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Shizuku advanced access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Advanced battery statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(shizukuStatus, color = if (shizukuAuthorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall)
                     }
@@ -609,7 +622,12 @@ private fun BatteryDashboard(
             }
             }
             if (selectedTab == 2) {
-            GlassCard {
+            SettingsSection(
+                title = "Root diagnostics",
+                subtitle = if (rootReport?.rooted == true) "Root available" else "Optional · rooted devices only",
+                icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
+                initiallyExpanded = false
+            ) {
                 Text("Root access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Optional for rooted devices. SysBattery requests root through su and only runs read-only battery-statistics and power-state diagnostics. Approve the superuser prompt in your root manager.",
@@ -663,8 +681,12 @@ private fun BatteryDashboard(
             )
             }
             if (selectedTab == 2) {
-                GlassCard {
-                    Text("Logs & diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                SettingsSection(
+                    title = "Logs & diagnostics",
+                    subtitle = "View or export local diagnostic logs",
+                    icon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null) },
+                    initiallyExpanded = false
+                ) {
                     Text("Local crash and app diagnostics logs. Nothing is uploaded automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("View recent logs") }
                     OutlinedButton(onClick = onExportDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Export logs…") }
@@ -690,6 +712,51 @@ private fun BatteryDashboard(
             listOf("Status", "App usage", "Settings").forEachIndexed { index, label ->
                 val icon = when (index) { 0 -> Icons.Rounded.Home; 1 -> Icons.Rounded.Apps; else -> Icons.Rounded.Settings }
                 NavigationBarItem(selected = selectedTab == index, onClick = { selectedTab = index }, icon = { Icon(icon, contentDescription = label) }, label = { Text(label) }, alwaysShowLabel = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    subtitle: String,
+    icon: @Composable () -> Unit,
+    initiallyExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Surface(
+                onClick = { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = if (expanded) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f) else Color.Transparent
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                        Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) { CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onPrimaryContainer) { icon() } }
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = if (expanded) "Collapse $title" else "Expand $title", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (expanded) {
+                Spacer(Modifier.height(12.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
             }
         }
     }
