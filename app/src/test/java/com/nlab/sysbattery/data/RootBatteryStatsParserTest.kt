@@ -30,6 +30,22 @@ class RootBatteryStatsParserTest {
         assertTrue(findings.any { it.label == "History wake-lock event" && it.value.contains("*alarm*") })
     }
 
+    @Test fun parsesOplusEstimatedComponentAndUidRows() {
+        val findings = RootBatteryStatsParser.parse(
+            """
+            Estimated power use (mAh):
+              Capacity: 7400, Computed drain: 1229, actual drain: 1229
+              Global
+              screen: 427 apps: 427
+              cpu: 657 apps: 656 duration: 6h
+              UID u0a446: 296 fg: 115 bg: 6.94
+            """.trimIndent()
+        )
+        assertTrue(findings.any { it.label == "Component estimate (mAh)" && it.value.startsWith("screen: 427") })
+        assertTrue(findings.any { it.label == "Component estimate (mAh)" && it.value.startsWith("cpu: 657") })
+        assertTrue(findings.any { it.label == "UID estimate (mAh)" && it.value.startsWith("UID u0a446: 296") })
+    }
+
     @Test fun ignoresEmptyAndBoundsOutput() {
         assertEquals(0, RootBatteryStatsParser.parse("").size)
         assertEquals(2, RootBatteryStatsParser.parse("capacity: 4000\ncapacity: 4200", maxFindings = 2).size)
