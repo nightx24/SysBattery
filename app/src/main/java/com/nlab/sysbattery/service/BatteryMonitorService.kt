@@ -185,8 +185,8 @@ class BatteryMonitorService : Service() {
     private fun resetCounters() {
         screenOnMillis = 0L
         screenOffMillis = 0L
-        activeDrainPercent = 0
-        idleDrainPercent = 0
+        activeDrainPercent = 0.0
+        idleDrainPercent = 0.0
         activeDrainMillis = 0L
         idleDrainMillis = 0L
         persistCounters()
