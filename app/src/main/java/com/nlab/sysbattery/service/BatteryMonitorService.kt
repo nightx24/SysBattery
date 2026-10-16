@@ -35,6 +35,7 @@ import kotlin.math.max
 class BatteryMonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var reader: BatterySysfsReader
+    private lateinit var historyStore: com.nlab.sysbattery.data.BatteryHistoryStore
     private var previousLevel: Int? = null
     // Monotonic clock baseline; wall-clock changes must not create negative/huge intervals.
     private var previousSampleElapsedRealtime = 0L
@@ -117,6 +118,7 @@ class BatteryMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         reader = BatterySysfsReader(applicationContext)
+        historyStore = com.nlab.sysbattery.data.BatteryHistoryStore(applicationContext)
         restoreCounters()
         createNotificationChannel()
         restoreRateSamples()
@@ -197,6 +199,23 @@ class BatteryMonitorService : Service() {
             (nowElapsed - previousSampleElapsedRealtime).coerceAtLeast(0L)
         } else 0L
         val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
+        runCatching {
+            historyStore.record(
+                timestampMillis = sample.timestampMillis,
+                currentMicroAmps = sample.currentMicroAmps,
+                levelPercent = sample.levelPercent,
+                voltageMilliVolts = sample.voltageMilliVolts,
+                temperatureTenthsCelsius = sample.temperatureTenthsCelsius,
+                isPlugged = charging == true,
+                isScreenOn = interactive,
+                batteryStatus = sample.status,
+                chargeCounterMicroAmpHours = sample.chargeCounterMicroAmpHours,
+                fullChargeCapacityMicroAmpHours = sample.fullChargeCapacityMicroAmpHours
+                    ?: sample.estimatedFullChargeCapacityMicroAmpHours
+                    ?: sample.designCapacityMicroAmpHours,
+                source = sample.source
+            )
+        }.onFailure { DiagnosticLogger.error("Unable to persist battery history sample", it) }
         val (onElapsed, offElapsed) = updateAndMeasureScreenTime(interactive, nowElapsed)
         val trackedElapsed = onElapsed + offElapsed
 
