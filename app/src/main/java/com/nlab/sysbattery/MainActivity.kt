@@ -805,6 +805,7 @@ private fun BatteryDashboard(
         }
     }
     }
+}
 
 @Composable
 private fun SettingsSection(
