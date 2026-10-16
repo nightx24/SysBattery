@@ -301,6 +301,15 @@ private fun BatteryDashboard(
                         color = if (report.rooted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
                     report.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    if (report.findings.isNotEmpty()) {
+                        Text("Parsed battery findings", fontWeight = FontWeight.SemiBold)
+                        report.findings.forEach { finding ->
+                            Text("${finding.label}: ${finding.value}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else if (report.rooted) {
+                        Text("No recognized summary lines found in this Android/OEM output. Raw diagnostics are still available below.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    }
                     report.batteryStats?.let {
                         Text("BatteryStats output", fontWeight = FontWeight.SemiBold)
                         Text(it.take(4500), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
