@@ -2,6 +2,7 @@ package com.nlab.sysbattery
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -42,16 +43,36 @@ import androidx.core.view.WindowCompat
 import com.nlab.sysbattery.data.BatterySysfsReader
 import com.nlab.sysbattery.data.AdvancedBatteryStatsReader
 import com.nlab.sysbattery.data.RootAccessReader
+import com.nlab.sysbattery.data.ShizukuBatteryStatsReader
+import com.nlab.sysbattery.data.RootBatteryStatsParser
 import com.nlab.sysbattery.domain.BatteryStatsCalculator
 import com.nlab.sysbattery.service.BatteryMonitorService
 import java.util.Locale
+import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
+    private var shizukuStatus by mutableStateOf("Checking Shizuku…")
+    private var shizukuFindings by mutableStateOf<List<RootBatteryStatsParser.Finding>>(emptyList())
+    private var shizukuLoading by mutableStateOf(false)
+    private var shizukuAuthorized by mutableStateOf(false)
+    private val shizukuRequestCode = 0x5B24
+    private val shizukuPermissionListener = object : Shizuku.OnRequestPermissionResultListener {
+        override fun onRequestPermissionResult(requestCode: Int, grantResult: Int) {
+            if (requestCode != shizukuRequestCode) return
+            Shizuku.removeRequestPermissionResultListener(this)
+            runOnUiThread {
+                shizukuAuthorized = grantResult == PackageManager.PERMISSION_GRANTED
+                shizukuStatus = if (shizukuAuthorized) "Authorized · advanced statistics available"
+                    else "Permission denied · standard monitoring remains available"
+            }
+        }
+    }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        refreshShizukuStatus()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -105,21 +126,95 @@ class MainActivity : ComponentActivity() {
                     onThemeModeChange = { themeMode = it },
                     onPreferencesChanged = { preferencesRevision++ },
                     preferencesRevision = preferencesRevision,
+                    shizukuStatus = shizukuStatus,
+                    shizukuAuthorized = shizukuAuthorized,
+                    shizukuFindings = shizukuFindings,
+                    shizukuLoading = shizukuLoading,
+                    onRequestShizuku = { requestShizukuAccess() },
                     onRefreshAdvanced = {
-                        try {
-                            advancedReport = AdvancedBatteryStatsReader(this).read()
-                            advancedError = null
-                        } catch (e: Exception) {
-                            advancedError = "Could not read advanced statistics: ${e.javaClass.simpleName}"
-                        }
+                        shizukuLoading = true
+                        Thread {
+                            var findings = emptyList<RootBatteryStatsParser.Finding>()
+                            var shizukuError: String? = null
+                            if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                                try {
+                                    findings = ShizukuBatteryStatsReader().read().findings
+                                } catch (e: Exception) {
+                                    shizukuError = e.message ?: e.javaClass.simpleName
+                                }
+                            }
+                            var report: AdvancedBatteryStatsReader.Report? = null
+                            var reportError: String? = null
+                            try {
+                                report = AdvancedBatteryStatsReader(this).read()
+                            } catch (e: Exception) {
+                                reportError = "Could not read standard statistics: ${e.javaClass.simpleName}"
+                            }
+                            runOnUiThread {
+                                advancedReport = report
+                                advancedError = reportError
+                                shizukuFindings = findings
+                                if (shizukuError != null && findings.isEmpty()) {
+                                    advancedError = listOfNotNull(reportError, "Shizuku: $shizukuError").joinToString("\n")
+                                }
+                                shizukuLoading = false
+                            }
+                        }.start()
                     }
                 )
             }
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshShizukuStatus()
+    }
+
     override fun onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
         super.onDestroy()
+    }
+
+    private fun refreshShizukuStatus() {
+        val available = try {
+            packageManager.getPackageInfo("moe.shizuku.privileged.api", 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        } catch (_: Exception) {
+            false
+        }
+        shizukuAuthorized = Shizuku.pingBinder() &&
+            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+        shizukuStatus = when {
+            shizukuAuthorized -> "Authorized · advanced statistics available"
+            Shizuku.pingBinder() -> "Shizuku running · permission needed"
+            available -> "Shizuku installed · service not running"
+            else -> "Shizuku not installed · optional"
+        }
+    }
+
+    private fun requestShizukuAccess() {
+        if (!Shizuku.pingBinder()) {
+            val launchIntent = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+            if (launchIntent != null) {
+                startActivity(launchIntent)
+                shizukuStatus = "Open Shizuku and start its service, then return here"
+            } else {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/RikkaApps/Shizuku/releases")))
+                shizukuStatus = "Install Shizuku, start its service, then return here"
+            }
+            return
+        }
+        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+            shizukuAuthorized = true
+            shizukuStatus = "Authorized · advanced statistics available"
+            return
+        }
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
+        Shizuku.requestPermission(shizukuRequestCode)
     }
 }
 
