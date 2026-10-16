@@ -419,6 +419,7 @@ private fun BatteryDashboard(
     LaunchedEffect(selectedTab, usageAccessGranted) {
         if (selectedTab == 1) onRefreshAdvanced()
     }
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
@@ -803,7 +804,7 @@ private fun BatteryDashboard(
             }
         }
     }
-}
+    }
 
 @Composable
 private fun SettingsSection(
