@@ -64,9 +64,8 @@ class BatteryMonitorService : Service() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, BatteryMonitorService::class.java).setAction(ACTION_STOP)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-            else context.startService(intent)
+            // Stop directly instead of launching a foreground service just to stop it.
+            context.stopService(Intent(context, BatteryMonitorService::class.java))
         }
     }
 
