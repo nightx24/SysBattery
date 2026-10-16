@@ -393,29 +393,9 @@ private fun BatteryDashboard(
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 104.dp),
+                .verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.size(50.dp).clip(RoundedCornerShape(17.dp)).background(
-                    Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary))
-                ), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.BatteryChargingFull, null, tint = Color.White, modifier = Modifier.size(30.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("SysBattery", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text("Battery telemetry", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Surface(shape = CircleShape, color = if (running) Color(0xFF168264).copy(alpha = .15f) else MaterialTheme.colorScheme.surfaceVariant) {
-                    Text(if (running) "LIVE" else "PAUSED", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                }
-            }
-            PrimaryTabRow(selectedTabIndex = selectedTab, modifier = Modifier.fillMaxWidth()) {
-                listOf("Status", "App usage", "Settings").forEachIndexed { index, label ->
-                    Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(label) })
-                }
-            }
             if (selectedTab == 0) {
             GlassCard {
                 Text("BATTERY LEVEL", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, letterSpacing = 1.6.sp)
@@ -468,7 +448,7 @@ private fun BatteryDashboard(
             GlassCard {
                 Text("App usage estimates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Reads Android BatteryUsageStats when available and UsageStats for the last 24 hours. App mAh is Android's estimate, not a direct electrical measurement; unsupported or denied data is reported rather than fabricated.",
+                    "Battery estimates and app foreground time from Android, when supported.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
                 )
                 if (!usageAccessGranted) {
