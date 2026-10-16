@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.nlab.sysbattery.data.BatterySysfsReader
+import com.nlab.sysbattery.data.AdvancedBatteryStatsReader
 import com.nlab.sysbattery.domain.BatteryStatsCalculator
 import com.nlab.sysbattery.service.BatteryMonitorService
 import rikka.shizuku.Shizuku
@@ -65,6 +66,8 @@ class MainActivity : ComponentActivity() {
             val state by BatteryMonitorService.state.collectAsState()
             val prefs = getSharedPreferences("sysbattery", MODE_PRIVATE)
             var running by remember { mutableStateOf(prefs.getBoolean("monitor_enabled", false)) }
+            var advancedReport by remember { mutableStateOf<AdvancedBatteryStatsReader.Report?>(null) }
+            var advancedError by remember { mutableStateOf<String?>(null) }
             SysBatteryTheme {
                 BatteryDashboard(
                     sample = state.sample, rates = state.rates, running = running, shizukuMessage = shizukuMessage,
@@ -94,6 +97,16 @@ class MainActivity : ComponentActivity() {
                         (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
                             .setPrimaryClip(ClipData.newPlainText("SysBattery ADB commands", commands))
                         Toast.makeText(this, "ADB commands copied", Toast.LENGTH_SHORT).show()
+                    },
+                    advancedReport = advancedReport,
+                    advancedError = advancedError,
+                    onRefreshAdvanced = {
+                        try {
+                            advancedReport = AdvancedBatteryStatsReader(this).read()
+                            advancedError = null
+                        } catch (e: Exception) {
+                            advancedError = "Could not read advanced statistics: ${e.javaClass.simpleName}"
+                        }
                     }
                 )
             }
@@ -132,7 +145,10 @@ private fun BatteryDashboard(
     onShizuku: () -> Unit,
     onBackground: () -> Unit,
     onUsageAccess: () -> Unit,
-    onCopyAdb: () -> Unit
+    onCopyAdb: () -> Unit,
+    advancedReport: AdvancedBatteryStatsReader.Report?,
+    advancedError: String?,
+    onRefreshAdvanced: () -> Unit
 ) {
     val dark = isSystemInDarkTheme()
     val bg = if (dark) Color(0xFF090E1B) else Color(0xFFF1F4FC)
@@ -231,6 +247,30 @@ private fun BatteryDashboard(
                     "On your computer, with USB debugging authorized, run the copied commands. If pm grant reports a permission/protection error, that Android build does not allow this grant to a regular app. Usage access may still need to be enabled manually in Settings.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
                 )
+            }
+            GlassCard {
+                Text("Battery attribution & app activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Reads Android BatteryUsageStats when available and UsageStats for the last 24 hours. App mAh is Android's estimate, not a direct electrical measurement; unsupported or denied data is reported rather than fabricated.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(onClick = onRefreshAdvanced, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Text("Refresh advanced statistics")
+                }
+                advancedError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                advancedReport?.let { report ->
+                    Text("Android total consumed power: ${report.totalConsumedMah?.let { String.format(Locale.getDefault(), "%.1f mAh", it) } ?: "unavailable"}")
+                    report.batteryStatsError?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                    report.apps.take(8).forEach { app ->
+                        Text("${app.packageName ?: "UID ${app.uid}"} · ${String.format(Locale.getDefault(), "%.2f mAh", app.consumedMah)}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("Most-used apps (foreground time)", fontWeight = FontWeight.SemiBold)
+                    report.usage.take(8).forEach { app ->
+                        val minutes = app.foregroundMillis / 60_000L
+                        Text("${app.packageName} · ${minutes / 60}h ${minutes % 60}m", style = MaterialTheme.typography.bodySmall)
+                    }
+                    report.usageStatsError?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                }
             }
             GlassCard {
                 Text("Advanced access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
