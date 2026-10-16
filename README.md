@@ -5,6 +5,8 @@ SysBattery is an open-source Android battery telemetry monitor built with Kotlin
 ## Features
 
 - Material 3 dashboard with rounded translucent cards, light/dark themes, and a modern glass-inspired appearance.
+- At-a-glance battery history chart for the current app session, with minimum and maximum recorded charge labels; history is intentionally session-only and is not presented as persistent system history.
+- Settings access overview for optional Usage Access, Shizuku, and root diagnostics, with clear distinction between basic monitoring and advanced access.
 - Battery percentage, current, voltage, temperature, charging direction, and estimated discharge rate when supported by the device.
 - User-started foreground monitoring with an ongoing notification that updates with live battery information.
 - Notification tap opens the dashboard; if Android permits the ongoing notification to be dismissed, a delete receiver requests restoration.
