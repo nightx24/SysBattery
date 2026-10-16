@@ -15,7 +15,7 @@ class RootBatteryStatsParserTest {
         )
         assertTrue(findings.any { it.label == "Estimated power" && it.value == "245.7" })
         assertTrue(findings.any { it.label == "Screen time/state" && it.value.contains("1h 20m") })
-        assertTrue(findings.any { it.label == "UID power estimate" && it.value.contains("u0a123") })
+        assertTrue(findings.any { it.label == "UID estimate (mAh)" && it.value.contains("u0a123") })
     }
 
     @Test fun parsesWakeLockAndHistoryEvents() {
