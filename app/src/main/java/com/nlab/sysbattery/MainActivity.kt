@@ -210,6 +210,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
+        if (shizukuService != null || shizukuServiceBinding) {
+            runCatching { Shizuku.unbindUserService(shizukuUserServiceArgs, shizukuServiceConnection, true) }
+        }
+        shizukuService = null
+        shizukuServiceBinding = false
         super.onDestroy()
     }
 
