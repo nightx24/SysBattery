@@ -174,11 +174,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onBackground = {
-                        try {
-                            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                data = Uri.parse("package:$packageName")
-                            })
-                        } catch (_: Exception) { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                        openBackgroundSettings()
                     },
                     onUsageAccess = {
                         try { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
@@ -254,6 +250,22 @@ class MainActivity : ComponentActivity() {
         usageAccessGranted = hasUsageAccess()
         batteryStatsPermissionGranted = hasBatteryStatsPermission()
         refreshShizukuStatus()
+    }
+
+    private fun openBackgroundSettings() {
+        val powerManager = getSystemService(android.os.PowerManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && powerManager?.isIgnoringBatteryOptimizations(packageName) != true) {
+            try {
+                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") })
+                return
+            } catch (_: Exception) { }
+        }
+        try {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        } catch (_: Exception) {
+            try { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:$packageName") }) }
+            catch (_: Exception) { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+        }
     }
 
     override fun onDestroy() {
