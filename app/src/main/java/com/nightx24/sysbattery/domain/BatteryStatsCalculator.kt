@@ -1,6 +1,6 @@
-package com.nightx24.sysbattery.domain
+package com.nlab.sysbattery.domain
 
-import com.nightx24.sysbattery.data.BatterySysfsReader
+import com.nlab.sysbattery.data.BatterySysfsReader
 import kotlin.math.abs
 
 /** Transparent estimates; not claimed to match unverified proprietary formulas. */
