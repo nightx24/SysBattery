@@ -122,14 +122,20 @@ class BatteryMonitorService : Service() {
         DiagnosticLogger.info("Battery monitor service starting")
         monitorJob = scope.launch {
             while (isActive) {
-                val sample = try {
-                    reader.readSnapshot()
+                try {
+                    sampleAndPublish()
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
-                    DiagnosticLogger.error("Battery sample failed; keeping monitor alive", t)
-                    delay(interval)
-                    continue
+                    DiagnosticLogger.error("Battery monitor iteration failed; will retry", t)
                 }
+                delay(interval)
+            }
+        }
+        return START_STICKY
+    }
+
+    private fun sampleAndPublish() {
+                val sample = reader.readSnapshot()
                 val charging = batteryStatus()
                 val preferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 if (preferences.getBoolean("reset_counters_requested", false)) {
@@ -172,10 +178,7 @@ class BatteryMonitorService : Service() {
                 previousLevel = newLevel
                 previousTimestamp = now
                 persistCounters()
-                delay(interval)
-            }
-        }
-        return START_STICKY
+
     }
 
     private fun resetCounters() {
