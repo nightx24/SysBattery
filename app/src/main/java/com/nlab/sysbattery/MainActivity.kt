@@ -25,6 +25,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.consume
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Home
@@ -423,6 +426,23 @@ private fun BatteryDashboard(
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
+                .pointerInput(selectedTab) {
+                    var horizontalDrag = 0f
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, dragAmount ->
+                            horizontalDrag += dragAmount
+                            if (kotlin.math.abs(horizontalDrag) > 80f) {
+                                val direction = if (horizontalDrag < 0f) 1 else -1
+                                val nextTab = (selectedTab + direction).coerceIn(0, 2)
+                                if (nextTab != selectedTab) selectedTab = nextTab
+                                horizontalDrag = 0f
+                                change.consume()
+                            }
+                        },
+                        onDragEnd = { horizontalDrag = 0f },
+                        onDragCancel = { horizontalDrag = 0f }
+                    )
+                }
                 .verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp)
         ) {
