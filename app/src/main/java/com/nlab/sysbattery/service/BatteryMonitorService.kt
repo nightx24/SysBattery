@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
+import kotlin.math.max
 
 /** User-started foreground sampler with a compact, FKM-inspired telemetry notification. */
 class BatteryMonitorService : Service() {
@@ -39,8 +40,9 @@ class BatteryMonitorService : Service() {
     private var monitorJob: Job? = null
     private var screenOnMillis = 0L
     private var screenOffMillis = 0L
-    private var activeDrainPercent = 0
-    private var idleDrainPercent = 0
+    // Fractional percentage-point loss avoids waiting for a full 1% level drop.
+    private var activeDrainPercent = 0.0
+    private var idleDrainPercent = 0.0
     private var activeDrainMillis = 0L
     private var idleDrainMillis = 0L
     private var previousCharging: Boolean? = null
@@ -65,8 +67,8 @@ class BatteryMonitorService : Service() {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putLong("screen_on_ms", 0L)
                 .putLong("screen_off_ms", 0L)
-                .putInt("active_drain_percent", 0)
-                .putInt("idle_drain_percent", 0)
+                .putFloat("active_drain_percent", 0f)
+                .putFloat("idle_drain_percent", 0f)
                 .putLong("active_drain_ms", 0L)
                 .putLong("idle_drain_ms", 0L)
                 .putBoolean("reset_counters_requested", true)
@@ -113,21 +115,22 @@ class BatteryMonitorService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        startForeground(NOTIFICATION_ID, buildNotification(null, null, null))
+        startForeground(NOTIFICATION_ID, buildNotification(null, null, batteryStatus()))
         val interval = (intent?.getLongExtra(EXTRA_INTERVAL_MS, DEFAULT_INTERVAL_MS) ?: DEFAULT_INTERVAL_MS)
             .coerceIn(2_000L, 60_000L)
         monitorJob?.cancel()
         DiagnosticLogger.info("Battery monitor service starting")
         monitorJob = scope.launch {
             while (isActive) {
-                val sample = reader.readSnapshot()
-                val status = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                    ?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-                val charging = when (status) {
-                    BatteryManager.BATTERY_STATUS_CHARGING, BatteryManager.BATTERY_STATUS_FULL -> true
-                    BatteryManager.BATTERY_STATUS_DISCHARGING, BatteryManager.BATTERY_STATUS_NOT_CHARGING -> false
-                    else -> null
+                val sample = try {
+                    reader.readSnapshot()
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    DiagnosticLogger.error("Battery sample failed; keeping monitor alive", t)
+                    delay(interval)
+                    continue
                 }
+                val charging = batteryStatus()
                 val preferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 if (preferences.getBoolean("reset_counters_requested", false)) {
                     resetCounters()
@@ -155,13 +158,15 @@ class BatteryMonitorService : Service() {
                     thresholdResetTriggered = true
                 }
                 if (oldLevel != null && newLevel != null && newLevel < oldLevel && charging != true) {
-                    val drop = oldLevel - newLevel
+                    val drop = (oldLevel - newLevel).toDouble()
                     if (interactive) activeDrainPercent += drop else idleDrainPercent += drop
                 }
                 if (interactive) activeDrainMillis += elapsed else idleDrainMillis += elapsed
 
                 mutableState.value = MonitorState(sample, rates)
-                notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
+                runCatching {
+                    notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
+                }.onFailure { DiagnosticLogger.error("Battery notification update failed", it) }
                 previous = BatteryStatsCalculator.PreviousSample(sample.timestampMillis,
                     sample.levelPercent, sample.currentMicroAmps, sample.chargeCounterMicroAmpHours)
                 previousLevel = newLevel
@@ -181,6 +186,21 @@ class BatteryMonitorService : Service() {
         activeDrainMillis = 0L
         idleDrainMillis = 0L
         persistCounters()
+    }
+
+    /** Read sticky battery status instead of inferring plug state from current polarity. */
+    private fun batteryStatus(): Boolean? = try {
+        val status = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+            ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+        when (status) {
+            BatteryManager.BATTERY_STATUS_CHARGING, BatteryManager.BATTERY_STATUS_FULL -> true
+            BatteryManager.BATTERY_STATUS_DISCHARGING, BatteryManager.BATTERY_STATUS_NOT_CHARGING -> false
+            else -> null
+        }
+    } catch (t: RuntimeException) {
+        DiagnosticLogger.error("Unable to read battery status", t)
+        null
     }
 
     private fun notificationManager() = getSystemService(NotificationManager::class.java)
@@ -278,8 +298,8 @@ class BatteryMonitorService : Service() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         screenOnMillis = prefs.getLong("screen_on_ms", 0L)
         screenOffMillis = prefs.getLong("screen_off_ms", 0L)
-        activeDrainPercent = prefs.getInt("active_drain_percent", 0)
-        idleDrainPercent = prefs.getInt("idle_drain_percent", 0)
+        activeDrainPercent = prefs.getFloat("active_drain_percent", prefs.getInt("active_drain_percent", 0).toFloat()).toDouble()
+        idleDrainPercent = prefs.getFloat("idle_drain_percent", prefs.getInt("idle_drain_percent", 0).toFloat()).toDouble()
         activeDrainMillis = prefs.getLong("active_drain_ms", 0L)
         idleDrainMillis = prefs.getLong("idle_drain_ms", 0L)
     }
@@ -288,17 +308,18 @@ class BatteryMonitorService : Service() {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
             .putLong("screen_on_ms", screenOnMillis)
             .putLong("screen_off_ms", screenOffMillis)
-            .putInt("active_drain_percent", activeDrainPercent)
-            .putInt("idle_drain_percent", idleDrainPercent)
+            .putFloat("active_drain_percent", activeDrainPercent.toFloat())
+            .putFloat("idle_drain_percent", idleDrainPercent.toFloat())
             .putLong("active_drain_ms", activeDrainMillis)
             .putLong("idle_drain_ms", idleDrainMillis)
             .apply()
     }
 
-    /** Rates are based on whole-percent level drops and may remain -- until a drop is observed. */
-    private fun ratePerHour(drainPercent: Int, durationMillis: Long): String {
-        if (durationMillis <= 0L || drainPercent == 0) return "--/hr"
-        val rate = drainPercent * 3_600_000.0 / durationMillis
+    /** Report zero after observation with no level loss; show collecting until elapsed time exists. */
+    private fun ratePerHour(drainPercent: Double, durationMillis: Long): String {
+        if (durationMillis <= 0L) return "Collecting…"
+        val rate = max(0.0, drainPercent) * 3_600_000.0 / durationMillis
+        if (!rate.isFinite()) return "—"
         return String.format(Locale.getDefault(), "%.2f%%/hr", rate)
     }
 
