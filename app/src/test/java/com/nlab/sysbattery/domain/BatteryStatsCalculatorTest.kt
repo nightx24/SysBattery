@@ -52,6 +52,35 @@ class BatteryStatsCalculatorTest {
     }
 
     @Test
+    fun windowedRateWaitsForEnoughSamples() {
+        val current = sample(60_000L, 49, 1_900_000L)
+        val samples = listOf(
+            BatteryStatsCalculator.TimedSample(0L, 50, -500_000L, 2_000_000L),
+            BatteryStatsCalculator.TimedSample(20_000L, 50, -480_000L, 1_990_000L),
+            BatteryStatsCalculator.TimedSample(40_000L, 50, -510_000L, 1_950_000L),
+            BatteryStatsCalculator.TimedSample(60_000L, 49, -500_000L, 1_900_000L)
+        )
+        val result = BatteryStatsCalculator.calculateWindowed(samples, current, false)
+        assertNull(result.batteryPercentPerHour)
+        assertEquals(BatteryStatsCalculator.Direction.DISCHARGING, result.direction)
+        org.junit.Assert.assertNotNull(result.currentMilliAmpsMagnitude)
+        org.junit.Assert.assertNotNull(result.powerWattsMagnitude)
+    }
+
+    @Test
+    fun windowedRateCalculatesRateFromThreeMinuteLevelWindow() {
+        val current = sample(180_000L, 49, 1_900_000L)
+        val samples = listOf(
+            BatteryStatsCalculator.TimedSample(0L, 50, -500_000L, 2_000_000L),
+            BatteryStatsCalculator.TimedSample(60_000L, 50, -480_000L, 1_990_000L),
+            BatteryStatsCalculator.TimedSample(120_000L, 50, -510_000L, 1_950_000L),
+            BatteryStatsCalculator.TimedSample(180_000L, 49, -500_000L, 1_900_000L)
+        )
+        val result = BatteryStatsCalculator.calculateWindowed(samples, current, false)
+        assertEquals(20.0, result.batteryPercentPerHour!!, 0.001)
+    }
+
+    @Test
     fun dischargeRateUsesOnlyPositivePercentageDrop() {
         val result = BatteryStatsCalculator.calculate(
             previous = BatteryStatsCalculator.PreviousSample(0L, 45, -500_000L, 2_200_000L),
