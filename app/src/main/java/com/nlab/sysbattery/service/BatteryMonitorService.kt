@@ -187,6 +187,8 @@ class BatteryMonitorService : Service() {
 
         val now = sample.timestampMillis
         val elapsed = if (previousTimestamp > 0L) (now - previousTimestamp).coerceAtLeast(0L) else 0L
+        val screenOnBefore = screenOnMillis
+        val screenOffBefore = screenOffMillis
         val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
         val nowElapsed = SystemClock.elapsedRealtime()
         if (screenStateInteractive == null) {
@@ -197,6 +199,9 @@ class BatteryMonitorService : Service() {
         } else {
             accumulateScreenTime(nowElapsed)
         }
+        val onElapsed = (screenOnMillis - screenOnBefore).coerceAtLeast(0L)
+        val offElapsed = (screenOffMillis - screenOffBefore).coerceAtLeast(0L)
+        val trackedElapsed = onElapsed + offElapsed
 
         val oldLevel = previousLevel
         val newLevel = sample.levelPercent
@@ -212,9 +217,17 @@ class BatteryMonitorService : Service() {
         if (oldLevel != null && newLevel != null && charging != true && oldLevel > newLevel &&
             oldLevel - newLevel <= 10 && elapsed > 0L) {
             val drop = (oldLevel - newLevel).toDouble()
-            if (screenStateInteractive == true) activeDrainPercent += drop else idleDrainPercent += drop
+            if (trackedElapsed > 0L) {
+                activeDrainPercent += drop * onElapsed / trackedElapsed
+                idleDrainPercent += drop * offElapsed / trackedElapsed
+            } else if (screenStateInteractive == true) {
+                activeDrainPercent += drop
+            } else {
+                idleDrainPercent += drop
+            }
         }
-        if (screenStateInteractive == true) activeDrainMillis += elapsed else idleDrainMillis += elapsed
+        activeDrainMillis += onElapsed
+        idleDrainMillis += offElapsed
 
         mutableState.value = MonitorState(sample, rates)
         runCatching {
