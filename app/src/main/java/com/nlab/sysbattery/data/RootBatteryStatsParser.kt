@@ -9,7 +9,7 @@ object RootBatteryStatsParser {
 
     private val patterns = listOf(
         "Estimated power" to Regex("""(?i)^\\s*(estimated power use.*?)(?::\\s*)(.+?)\\s*$"""),
-        "Battery capacity" to Regex("""(?i)^\\s*(?:capacity|battery capacity)\\s*[:=]\\s*(.+?)\\s*$"""),
+        "Battery capacity" to Regex("""(?i)^\\s*(capacity|battery capacity)\\s*[:=]\\s*(.+?)\\s*$"""),
         "Discharge" to Regex("""(?i)^\\s*(discharge(?:d)?(?:\\s+since.*)?|start clock time)\\s*[:=]\\s*(.+?)\\s*$"""),
         "Screen" to Regex("""(?i)^\\s*(screen(?: on| off)? time|screen-on time|screen-off time)\\s*[:=]\\s*(.+?)\\s*$"""),
         "Wake locks" to Regex("""(?i)^\\s*(partial wakelock(?:s)?|wake lock(?:s)?)\\s*[:=]\\s*(.+?)\\s*$"""),
