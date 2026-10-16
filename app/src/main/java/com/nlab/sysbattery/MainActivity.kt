@@ -502,6 +502,8 @@ private fun BatteryDashboard(
                     Text(level?.let { "$it%" } ?: "—", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
                 if (batteryHistory.size >= 2) {
+                    val chartLineColor = MaterialTheme.colorScheme.primary
+                    val chartGridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
                     Canvas(Modifier.fillMaxWidth().height(92.dp)) {
                         val values = batteryHistory.map { it.second.toFloat() }
                         val low = (values.minOrNull() ?: 0f).coerceAtMost(100f)
@@ -513,7 +515,7 @@ private fun BatteryDashboard(
                         repeat(3) { index ->
                             val y = inset + height * index / 2f
                             drawLine(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+                                color = chartGridColor,
                                 start = Offset(inset, y),
                                 end = Offset(size.width - inset, y),
                                 strokeWidth = 1.dp.toPx()
@@ -526,14 +528,14 @@ private fun BatteryDashboard(
                         }
                         points.zipWithNext().forEach { (start, end) ->
                             drawLine(
-                                color = MaterialTheme.colorScheme.primary,
+                                color = chartLineColor,
                                 start = start,
                                 end = end,
                                 strokeWidth = 3.dp.toPx()
                             )
                         }
                         points.lastOrNull()?.let { point ->
-                            drawCircle(MaterialTheme.colorScheme.primary, radius = 4.dp.toPx(), center = point)
+                            drawCircle(chartLineColor, radius = 4.dp.toPx(), center = point)
                         }
                     }
                 } else {
