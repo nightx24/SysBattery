@@ -438,14 +438,15 @@ class BatteryMonitorService : Service() {
             idleRate.removeSuffix("%/hr").toDoubleOrNull()?.let { it > idleWarningLimit } == true) {
             "High idle drain detected: $idleRate (limit " + idleWarningLimit + "%/h)"
         } else null
-        val observedMillis = (screenOnMillis + screenOffMillis).coerceAtLeast(0L)
-        val screenOnPercent = if (observedMillis > 0L) screenOnMillis * 100.0 / observedMillis else 0.0
-        val screenOffPercent = if (observedMillis > 0L) screenOffMillis * 100.0 / observedMillis else 0.0
+        val screenTotals = synchronized(screenStateLock) { Pair(screenOnMillis, screenOffMillis) }
+        val observedMillis = (screenTotals.first + screenTotals.second).coerceAtLeast(0L)
+        val screenOnPercent = if (observedMillis > 0L) screenTotals.first * 100.0 / observedMillis else 0.0
+        val screenOffPercent = if (observedMillis > 0L) screenTotals.second * 100.0 / observedMillis else 0.0
         val details = listOfNotNull(
             idleWarningText,
             "Active drain: $activeRate · idle drain: $idleRate",
-            "Screen on: " + formatDuration(screenOnMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOnPercent) + "%)",
-            "Screen off: " + formatDuration(screenOffMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffPercent) + "%)"
+            "Screen on: " + formatDuration(screenTotals.first) + " (" + String.format(Locale.getDefault(), "%.1f", screenOnPercent) + "%)",
+            "Screen off: " + formatDuration(screenTotals.second) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffPercent) + "%)"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(com.nlab.sysbattery.R.drawable.ic_sysbattery_status)
@@ -485,9 +486,10 @@ class BatteryMonitorService : Service() {
     }
 
     private fun persistCounters() {
+        val screenTotals = synchronized(screenStateLock) { Pair(screenOnMillis, screenOffMillis) }
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-            .putLong("screen_on_ms", screenOnMillis)
-            .putLong("screen_off_ms", screenOffMillis)
+            .putLong("screen_on_ms", screenTotals.first)
+            .putLong("screen_off_ms", screenTotals.second)
             .putFloat("active_drain_percent", activeDrainPercent.toFloat())
             .putFloat("idle_drain_percent", idleDrainPercent.toFloat())
             .putLong("active_drain_ms", activeDrainMillis)
