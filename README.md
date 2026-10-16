@@ -5,7 +5,7 @@ SysBattery is an open-source Android battery telemetry monitor built with Kotlin
 ## Features
 
 - Material 3 dashboard with rounded translucent cards, light/dark themes, and a modern glass-inspired appearance.
-- At-a-glance battery history chart for the current app session, with minimum and maximum recorded charge labels; history is intentionally session-only and is not presented as persistent system history.
+- At-a-glance battery history chart for the current app session, with minimum and maximum recorded charge labels. Raw telemetry samples are also persisted in a bounded local SQLite history (30-day retention); the chart has not yet been switched to query that database.
 - Settings access overview for optional Usage Access, Shizuku, and root diagnostics, with clear distinction between basic monitoring and advanced access.
 - Battery percentage, current, voltage, temperature, charging direction, and estimated discharge rate when supported by the device.
 - User-started foreground monitoring with an ongoing notification that updates with live battery information.
@@ -58,7 +58,7 @@ Root access is optional. Denying it does not affect standard battery monitoring.
 - BatteryManager current/charge-counter values can be unsupported or vendor-dependent. Sysfs access is best-effort and often restricted on retail devices.
 - The Shizuku button currently checks/request permission only; privileged Shizuku-backed sysfs reading is **not implemented yet**. Permission alone does not grant access to protected nodes.
 - Device-specific full-charge capacity, state-of-health, and cycle-count metrics are not yet implemented. PlusPlusBattery demonstrates useful OPlus-specific FCC/SOH estimates and cycle-count history, but these require device-specific data sources and careful validation before inclusion.
-- Per-app power attribution, deep-sleep accounting, and component power estimates are not implemented.
+- Per-app power attribution, reliable historical deep-sleep accounting, and component power estimates are not implemented. Raw timestamped battery samples are persisted locally, but no historical chart/query screen consumes that database yet.
 - The glass effect uses translucent surfaces and gradients rather than platform-specific backdrop blur, keeping the UI compatible across Android skins.
 
 See [docs/battery_logic_spec.md](docs/battery_logic_spec.md) for evidence tags and formula assumptions.
