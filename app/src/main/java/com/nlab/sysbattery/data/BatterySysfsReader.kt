@@ -3,7 +3,9 @@ package com.nlab.sysbattery.data
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.BatteryManager
+import rikka.shizuku.Shizuku
 import java.io.File
 import java.io.IOException
 
@@ -81,11 +83,31 @@ class BatterySysfsReader(context: Context) {
                 if (!file.isFile || !file.canRead()) continue
                 file.readText(Charsets.US_ASCII).trim().toLongOrNull()?.let { return it }
             } catch (_: IOException) {
-                // Missing or restricted power-supply nodes are normal on retail Android builds.
+                // A restricted node may still be readable through an explicitly authorized Shizuku shell.
             } catch (_: SecurityException) {
-                // Continue without root or elevated privileges.
+                // Try Shizuku only when the user has granted its permission.
             }
+            readSysfsWithShizuku(path)?.let { return it }
         }
         return null
+    }
+
+    /**
+     * Optional fallback for devices where Android's app UID cannot read power_supply sysfs.
+     * Shizuku executes a fixed cat command only for paths from this class's hard-coded allowlist.
+     * No shell access is attempted unless Shizuku is running and the user granted permission.
+     */
+    private fun readSysfsWithShizuku(path: String): Long? {
+        if (!Shizuku.pingBinder()) return null
+        if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) return null
+        return try {
+            val process = Shizuku.newProcess(arrayOf("sh", "-c", "cat '$path'"), null, null)
+            val value = process.inputStream.bufferedReader(Charsets.US_ASCII).use { it.readText().trim() }
+            val exitCode = process.waitFor()
+            if (exitCode == 0) value.toLongOrNull() else null
+        } catch (_: Exception) {
+            // Shizuku may be stopped, revoked, or unavailable on this device.
+            null
+        }
     }
 }
