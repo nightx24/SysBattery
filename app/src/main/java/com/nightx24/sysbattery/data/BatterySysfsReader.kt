@@ -1,4 +1,4 @@
-package com.nightx24.sysbattery.data
+package com.nlab.sysbattery.data
 
 import android.content.Context
 import android.content.Intent
