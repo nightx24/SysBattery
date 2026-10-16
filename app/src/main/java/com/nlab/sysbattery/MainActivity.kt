@@ -327,6 +327,12 @@ private fun BatteryDashboard(
     shizukuFindings: List<RootBatteryStatsParser.Finding>,
     shizukuLoading: Boolean,
     onRequestShizuku: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    onExportDiagnostics: () -> Unit,
+    onClearDiagnostics: () -> Unit,
+    diagnosticText: String,
+    showDiagnostics: Boolean,
+    onDismissDiagnostics: () -> Unit,
     onMonitorEnabledChange: (Boolean) -> Unit,
     onThemeModeChange: (String) -> Unit,
     onPreferencesChanged: () -> Unit,
@@ -552,6 +558,28 @@ private fun BatteryDashboard(
                 onPreferencesChanged = onPreferencesChanged,
                 preferencesRevision = preferencesRevision
             )
+            }
+            if (selectedTab == 2) {
+                GlassCard {
+                    Text("Logs & diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Local crash and app diagnostics logs. Nothing is uploaded automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("View recent logs") }
+                    OutlinedButton(onClick = onExportDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Export logs…") }
+                    OutlinedButton(onClick = onClearDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Clear logs") }
+                }
+            }
+            if (showDiagnostics) {
+                AlertDialog(
+                    onDismissRequest = onDismissDiagnostics,
+                    title = { Text("Logs & diagnostics") },
+                    text = {
+                        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                            Text(diagnosticText, style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    confirmButton = { TextButton(onClick = onExportDiagnostics) { Text("Export") } },
+                    dismissButton = { TextButton(onClick = onDismissDiagnostics) { Text("Close") } }
+                )
             }
             if (selectedTab == 0) Text("Readings depend on device and kernel support.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
