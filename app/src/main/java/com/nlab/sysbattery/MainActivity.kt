@@ -1,6 +1,7 @@
 package com.nlab.sysbattery
 
 import android.Manifest
+import android.app.AppOpsManager
 import android.content.Intent
 import android.content.ComponentName
 import android.content.ServiceConnection
@@ -62,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private var shizukuFindings by mutableStateOf<List<RootBatteryStatsParser.Finding>>(emptyList())
     private var shizukuLoading by mutableStateOf(false)
     private var showDiagnostics by mutableStateOf(false)
+    private var usageAccessGranted by mutableStateOf(false)
     private val exportDiagnostics = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) runCatching {
             contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(DiagnosticLogger.readLogs()) }
@@ -113,11 +115,22 @@ class MainActivity : ComponentActivity() {
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    override fun onResume() {
+        super.onResume()
+        usageAccessGranted = hasUsageAccess()
+    }
+
+    private fun hasUsageAccess(): Boolean {
+        val appOps = getSystemService(AppOpsManager::class.java) ?: return false
+        return appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName) == AppOpsManager.MODE_ALLOWED
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         DiagnosticLogger.initialize(applicationContext)
         DiagnosticLogger.info("MainActivity created")
+        usageAccessGranted = hasUsageAccess()
         refreshShizukuStatus()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -158,6 +171,7 @@ class MainActivity : ComponentActivity() {
                         catch (_: Exception) { startActivity(Intent(Settings.ACTION_SETTINGS)) }
                     },
                     advancedReport = advancedReport,
+                    usageAccessGranted = usageAccessGranted,
                     advancedError = advancedError,
                     rootReport = rootReport,
                     rootLoading = rootLoading,
@@ -336,6 +350,7 @@ private fun BatteryDashboard(
     onBackground: () -> Unit,
     onUsageAccess: () -> Unit,
     advancedReport: AdvancedBatteryStatsReader.Report?,
+    usageAccessGranted: Boolean,
     advancedError: String?,
     rootReport: RootAccessReader.RootReport?,
     rootLoading: Boolean,
@@ -446,6 +461,37 @@ private fun BatteryDashboard(
                 }
             }
             }
+            if (selectedTab == 1) {
+            GlassCard {
+                Text("App usage estimates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Reads Android BatteryUsageStats when available and UsageStats for the last 24 hours. App mAh is Android's estimate, not a direct electrical measurement; unsupported or denied data is reported rather than fabricated.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
+                )
+                if (!usageAccessGranted) {
+                    Text("Enable Usage Access to display app foreground time.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = onUsageAccess, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("Enable app usage access") }
+                }
+                OutlinedButton(onClick = onRefreshAdvanced, enabled = !shizukuLoading, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Text(if (shizukuLoading) "Loading app usage…" else "Refresh app usage")
+                }
+                advancedError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                advancedReport?.let { report ->
+                    Text("Android total consumed power: ${report.totalConsumedMah?.let { String.format(Locale.getDefault(), "%.1f mAh", it) } ?: "unavailable"}")
+                    report.batteryStatsError?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                    report.apps.take(8).forEach { app ->
+                        Text("${app.packageName ?: "UID ${app.uid}"} · ${String.format(Locale.getDefault(), "%.2f mAh", app.consumedMah)}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("Most-used apps (foreground time)", fontWeight = FontWeight.SemiBold)
+                    report.usage.take(50).forEach { app ->
+                        val minutes = app.foregroundMillis / 60_000L
+                        Text("${app.packageName} · ${minutes / 60}h ${minutes % 60}m", style = MaterialTheme.typography.bodySmall)
+                    }
+                    report.usageStatsError?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+
+            }
             if (selectedTab == 2) {
                 PrimaryTabRow(selectedTabIndex = selectedOptionsPage, modifier = Modifier.fillMaxWidth()) {
                     listOf("General", "Access", "Diagnostics").forEachIndexed { index, label ->
@@ -469,9 +515,8 @@ private fun BatteryDashboard(
                     "SysBattery uses public battery APIs for live readings and Usage Access for app foreground time. Android restricts per-app power attribution on many production builds; if access is denied, the app reports that limitation instead of showing invented mAh values.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
                 )
-                OutlinedButton(onClick = onUsageAccess, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                    Text("Open Usage Access settings")
-                }
+                if (!usageAccessGranted) Button(onClick = onUsageAccess, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("Enable Usage Access") }
+                else Text("Usage Access enabled", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 Text(
                     "No privileged ADB grant is required for live battery level, voltage, temperature, and supported current readings. Usage Access is managed in Android Settings; ADB may be blocked from changing it on some OEM builds.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
@@ -507,30 +552,6 @@ private fun BatteryDashboard(
                         Text("${finding.label}: ${finding.value}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (shizukuFindings.isEmpty() && !shizukuLoading) Text("No Shizuku report loaded yet. Tap Read privileged BatteryStats.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            GlassCard {
-                Text("App usage estimates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Reads Android BatteryUsageStats when available and UsageStats for the last 24 hours. App mAh is Android's estimate, not a direct electrical measurement; unsupported or denied data is reported rather than fabricated.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
-                )
-                OutlinedButton(onClick = onRefreshAdvanced, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                    Text("Refresh advanced statistics")
-                }
-                advancedError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                advancedReport?.let { report ->
-                    Text("Android total consumed power: ${report.totalConsumedMah?.let { String.format(Locale.getDefault(), "%.1f mAh", it) } ?: "unavailable"}")
-                    report.batteryStatsError?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-                    report.apps.take(8).forEach { app ->
-                        Text("${app.packageName ?: "UID ${app.uid}"} · ${String.format(Locale.getDefault(), "%.2f mAh", app.consumedMah)}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Text("Most-used apps (foreground time)", fontWeight = FontWeight.SemiBold)
-                    report.usage.take(8).forEach { app ->
-                        val minutes = app.foregroundMillis / 60_000L
-                        Text("${app.packageName} · ${minutes / 60}h ${minutes % 60}m", style = MaterialTheme.typography.bodySmall)
-                    }
-                    report.usageStatsError?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 }
             }
             }
