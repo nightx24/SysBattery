@@ -439,14 +439,15 @@ class BatteryMonitorService : Service() {
             "High idle drain detected: $idleRate (limit " + idleWarningLimit + "%/h)"
         } else null
         val screenTotals = synchronized(screenStateLock) { Pair(screenOnMillis, screenOffMillis) }
-        val observedMillis = (screenTotals.first + screenTotals.second).coerceAtLeast(0L)
-        val screenOnPercent = if (observedMillis > 0L) screenTotals.first * 100.0 / observedMillis else 0.0
-        val screenOffPercent = if (observedMillis > 0L) screenTotals.second * 100.0 / observedMillis else 0.0
+        // FKM-style percentages represent battery-level loss attributed to each state, not
+        // the fraction of elapsed monitoring time spent with the display on/off.
+        val activeLoss = activeDrainPercent.coerceAtLeast(0.0)
+        val idleLoss = idleDrainPercent.coerceAtLeast(0.0)
         val details = listOfNotNull(
             idleWarningText,
             "Active drain: $activeRate · idle drain: $idleRate",
-            "Screen on: " + formatDuration(screenTotals.first) + " (" + String.format(Locale.getDefault(), "%.1f", screenOnPercent) + "%)",
-            "Screen off: " + formatDuration(screenTotals.second) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffPercent) + "%)"
+            "Screen on: " + formatDuration(screenTotals.first) + " (" + String.format(Locale.getDefault(), "%.1f", activeLoss) + "%)",
+            "Screen off: " + formatDuration(screenTotals.second) + " (" + String.format(Locale.getDefault(), "%.1f", idleLoss) + "%)"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(com.nlab.sysbattery.R.drawable.ic_sysbattery_status)
@@ -499,7 +500,7 @@ class BatteryMonitorService : Service() {
 
     /** Report zero after observation with no level loss; show collecting until elapsed time exists. */
     private fun ratePerHour(drainPercent: Double, durationMillis: Long): String {
-        if (durationMillis <= 0L) return "Collecting…"
+        if (durationMillis <= 0L || drainPercent <= 0.0) return "Collecting…"
         val rate = max(0.0, drainPercent) * 3_600_000.0 / durationMillis
         if (!rate.isFinite()) return "—"
         return String.format(Locale.getDefault(), "%.2f%%/hr", rate)
