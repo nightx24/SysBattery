@@ -199,6 +199,27 @@ class BatteryMonitorService : Service() {
             .build()
     }
 
+    private fun restoreCounters() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        screenOnMillis = prefs.getLong("screen_on_ms", 0L)
+        screenOffMillis = prefs.getLong("screen_off_ms", 0L)
+        activeDrainPercent = prefs.getInt("active_drain_percent", 0)
+        idleDrainPercent = prefs.getInt("idle_drain_percent", 0)
+        activeDrainMillis = prefs.getLong("active_drain_ms", 0L)
+        idleDrainMillis = prefs.getLong("idle_drain_ms", 0L)
+    }
+
+    private fun persistCounters() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putLong("screen_on_ms", screenOnMillis)
+            .putLong("screen_off_ms", screenOffMillis)
+            .putInt("active_drain_percent", activeDrainPercent)
+            .putInt("idle_drain_percent", idleDrainPercent)
+            .putLong("active_drain_ms", activeDrainMillis)
+            .putLong("idle_drain_ms", idleDrainMillis)
+            .apply()
+    }
+
     /** Rates are based on whole-percent level drops and may remain -- until a drop is observed. */
     private fun ratePerHour(drainPercent: Int, durationMillis: Long): String {
         if (durationMillis <= 0L || drainPercent == 0) return "--/hr"
