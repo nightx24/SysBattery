@@ -221,7 +221,8 @@ class BatteryMonitorService : Service() {
             val previousCounter = previousChargeCounterMicroAmpHours
             val currentCounter = sample.chargeCounterMicroAmpHours
             val capacityUah = (sample.fullChargeCapacityMicroAmpHours
-                ?: sample.estimatedFullChargeCapacityMicroAmpHours)
+                ?: sample.estimatedFullChargeCapacityMicroAmpHours
+                ?: sample.designCapacityMicroAmpHours)
                 ?.takeIf { it in 100_000L..30_000_000L }
             val counterDeltaUah = if (previousCounter != null && currentCounter != null) {
                 previousCounter - currentCounter
