@@ -69,7 +69,7 @@ class AdvancedBatteryStatsReader(context: Context) {
                 }?.invoke(consumer) as? Number)?.toDouble() ?: return@mapNotNull null
                 if (!power.isFinite() || power < 0.0 || uid < 0) null
                 else AppEnergy(uid, appContext.packageManager.getPackagesForUid(uid)?.firstOrNull(), power)
-            }.sortedByDescending { it.consumedMah }
+            }.sortedWith(compareByDescending<AppEnergy> { app -> app.consumedMah })
             Triple(total?.takeIf { it.isFinite() && it >= 0.0 }, apps, null)
         } catch (_: SecurityException) {
             Triple(null, emptyList(), "Android denied BATTERY_STATS. Grant it with ADB if this OS permits it.")
