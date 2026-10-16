@@ -235,24 +235,25 @@ class BatteryMonitorService : Service() {
                     .takeIf { it.isFinite() && it in 0.0..20.0 }
             } else null
 
-            if (counterBasedLossPercent != null) {
-                activeDrainPercent += counterBasedLossPercent * onElapsed / trackedElapsed
-                idleDrainPercent += counterBasedLossPercent * offElapsed / trackedElapsed
-            } else {
-                // Fallback for devices that hide charge-counter/capacity telemetry.
-                // This is a whole-window estimate, not a claim of per-state current accuracy.
-                val currentBasedRate = rates.batteryPercentPerHour
-                if (currentBasedRate != null && currentBasedRate.isFinite() &&
-                    currentBasedRate in 0.0..500.0 && trackedElapsed > 0L) {
-                    val intervalLoss = currentBasedRate * trackedElapsed / 3_600_000.0
-                    activeDrainPercent += intervalLoss * onElapsed / trackedElapsed
-                    idleDrainPercent += intervalLoss * offElapsed / trackedElapsed
-                } else if (oldLevel != null && newLevel != null && oldLevel > newLevel &&
-                    oldLevel - newLevel <= 10 && trackedElapsed > 0L) {
-                    val drop = (oldLevel - newLevel).toDouble()
-                    activeDrainPercent += drop * onElapsed / trackedElapsed
-                    idleDrainPercent += drop * offElapsed / trackedElapsed
-                }
+            val intervalLossPercent = counterBasedLossPercent ?: run {
+                // Integrate the live current over this interval. This avoids waiting for
+                // a rounded 1% battery-level change and does not require a rolling window
+                // to have enough samples before the counters begin moving.
+                val currentMa = sample.currentMicroAmps?.let { kotlin.math.abs(it) / 1_000.0 }
+                    ?.takeIf { it.isFinite() && it in 1.0..15_000.0 }
+                val capacityMah = capacityUah?.div(1_000.0)?.takeIf { it > 0.0 }
+                val currentLoss = if (currentMa != null && capacityMah != null && elapsed > 0L) {
+                    currentMa * (elapsed / 3_600_000.0) / capacityMah * 100.0
+                } else null
+                currentLoss?.takeIf { it.isFinite() && it in 0.0..20.0 }
+                    ?: rates.batteryPercentPerHour?.takeIf { it.isFinite() && it in 0.0..500.0 }
+                        ?.let { it * elapsed / 3_600_000.0 }
+                    ?: if (oldLevel != null && newLevel != null && oldLevel > newLevel &&
+                        oldLevel - newLevel <= 10) (oldLevel - newLevel).toDouble() else null
+            }
+            if (intervalLossPercent != null && trackedElapsed > 0L) {
+                activeDrainPercent += intervalLossPercent * onElapsed / trackedElapsed
+                idleDrainPercent += intervalLossPercent * offElapsed / trackedElapsed
             }
             activeDrainMillis += onElapsed
             idleDrainMillis += offElapsed
