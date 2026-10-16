@@ -1,6 +1,6 @@
 # SysBattery
 
-SysBattery is an independent Kotlin Android battery telemetry monitor, built as a clean-room implementation. It is not affiliated with Franco Kernel Manager.
+SysBattery is an open-source Android battery telemetry monitor built with Kotlin.
 
 ## Features
 - Reads Android `BatteryManager` properties first, with safe read-only `/sys/class/power_supply/` fallbacks.
@@ -15,7 +15,7 @@ Open this repository in a current Android Studio version with JDK 17 and Android
 ## Notes
 - The default 10-second sampling interval is a recreation choice, not a verified interval from the reference app.
 - `BatteryManager` current/charge-counter values can be unsupported or vendor-dependent. Sysfs access is best-effort and often restricted on retail devices.
-- This starter does not claim to reproduce per-app power attribution, deep-sleep accounting, or component power estimates from Franco Kernel Manager.
+- Per-app power attribution, deep-sleep accounting, and component power estimates are not implemented yet.
 - Foreground-service rules and notification permission behavior can vary by Android version and distribution policy; review requirements before publishing.
 
 See [`docs/battery_logic_spec.md`](docs/battery_logic_spec.md) for evidence tags and formula assumptions.
