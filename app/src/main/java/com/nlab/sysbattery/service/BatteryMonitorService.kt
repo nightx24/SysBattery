@@ -72,6 +72,8 @@ class BatteryMonitorService : Service() {
                 .putLong("active_drain_ms", 0L)
                 .putLong("idle_drain_ms", 0L)
                 .putBoolean("reset_counters_requested", true)
+                .putString("rate_samples_v1", "")
+                .putString("rate_direction_v1", "UNKNOWN")
                 .apply()
         }
         private val mutableState = MutableStateFlow(MonitorState())
@@ -325,9 +327,7 @@ class BatteryMonitorService : Service() {
             String.format(Locale.getDefault(), "%.1f%s", value, unit)
         }
         val current = if (showChargingPower) rates?.currentMilliAmpsMagnitude else null
-        val powerWatts = if (showChargingPower && current != null && sample?.voltageMilliVolts != null) {
-            current * sample.voltageMilliVolts / 1_000_000.0
-        } else null
+        val powerWatts = if (showChargingPower) rates?.powerWattsMagnitude else null
         val mode = when (charging) {
             true -> "Charging"
             false -> "Discharging"
