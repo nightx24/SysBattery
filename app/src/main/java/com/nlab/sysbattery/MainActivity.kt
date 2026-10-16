@@ -318,6 +318,14 @@ private fun BatteryDashboard(
                         Text("Power-state output", fontWeight = FontWeight.SemiBold)
                         Text(it.take(2500), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    report.batteryHistory?.let {
+                        Text("Battery history (raw)", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (it.isBlank()) "History unavailable on this device/build." else it.take(2500),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 OutlinedButton(onClick = onShizuku, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("Check Shizuku access") }
                 shizukuMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
