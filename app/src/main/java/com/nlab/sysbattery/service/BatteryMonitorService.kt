@@ -35,7 +35,6 @@ import kotlin.math.max
 class BatteryMonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var reader: BatterySysfsReader
-    private var previous: BatteryStatsCalculator.PreviousSample? = null
     private var previousLevel: Int? = null
     private var previousTimestamp = 0L
     private var monitorJob: Job? = null
@@ -232,10 +231,6 @@ class BatteryMonitorService : Service() {
         runCatching {
             notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
         }.onFailure { DiagnosticLogger.error("Battery notification update failed", it) }
-        previous = BatteryStatsCalculator.PreviousSample(
-            sample.timestampMillis, sample.levelPercent, sample.currentMicroAmps,
-            sample.chargeCounterMicroAmpHours
-        )
         previousLevel = newLevel
         previousTimestamp = now
         persistCounters()
@@ -452,8 +447,8 @@ class BatteryMonitorService : Service() {
         val details = listOfNotNull(
             idleWarningText,
             "Active drain: $activeRate · idle drain: $idleRate",
-            "Screen on: " + formatDuration(screenTotals.first) + " (" + String.format(Locale.getDefault(), "%.1f", activeLoss) + "%)",
-            "Screen off: " + formatDuration(screenTotals.second) + " (" + String.format(Locale.getDefault(), "%.1f", idleLoss) + "%)"
+            "Screen on: " + formatDuration(screenTotals.first) + " (" + String.format(Locale.getDefault(), "%.2f", activeLoss) + "%)",
+            "Screen off: " + formatDuration(screenTotals.second) + " (" + String.format(Locale.getDefault(), "%.2f", idleLoss) + "%)"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(com.nlab.sysbattery.R.drawable.ic_sysbattery_status)
@@ -506,9 +501,13 @@ class BatteryMonitorService : Service() {
 
     /** Report zero after observation with no level loss; show collecting until elapsed time exists. */
     private fun ratePerHour(drainPercent: Double, durationMillis: Long): String {
-        if (durationMillis <= 0L || drainPercent <= 0.0) return "Collecting…"
+        if (durationMillis <= 0L) return "Collecting…"
+        if (!drainPercent.isFinite() || drainPercent < 0.0) return "—"
+        if (drainPercent == 0.0) return "Collecting…"
         val rate = max(0.0, drainPercent) * 3_600_000.0 / durationMillis
         if (!rate.isFinite()) return "—"
+        // Do not round a tiny non-zero estimate down to a misleading 0.00%/hr.
+        if (rate < 0.005) return "<0.01%/hr"
         return String.format(Locale.getDefault(), "%.2f%%/hr", rate)
     }
 
