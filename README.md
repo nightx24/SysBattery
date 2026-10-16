@@ -9,6 +9,8 @@ SysBattery is an open-source Android battery telemetry monitor built with Kotlin
 - Settings access overview for optional Usage Access, Shizuku, and root diagnostics, with clear distinction between basic monitoring and advanced access.
 - Battery percentage, current, voltage, temperature, charging direction, and estimated discharge rate when supported by the device.
 - User-started foreground monitoring with an ongoing notification that updates with live battery information.
+- Drain estimates show a collection state until the first sample interval elapses; monitoring iterations log recoverable failures and retry instead of silently ending.
+- Background-settings shortcut falls back to general battery optimization and app-info pages when a vendor ROM does not expose the direct exemption screen.
 - Notification tap opens the dashboard; if Android permits the ongoing notification to be dismissed, a delete receiver requests restoration.
 - Remembers whether monitoring was enabled and attempts recovery after device reboot or app update.
 - Best-effort battery background guidance for ColorOS/OxygenOS, HyperOS, and One UI.
