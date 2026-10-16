@@ -1,5 +1,7 @@
 package com.nlab.sysbattery.data
 
+import com.nlab.sysbattery.diagnostics.DiagnosticLogger
+
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Build
@@ -82,14 +84,17 @@ class AdvancedBatteryStatsReader(context: Context) {
             Triple(total?.takeIf { it.isFinite() && it >= 0.0 }, apps, null)
         } catch (e: java.lang.reflect.InvocationTargetException) {
             val cause = e.targetException
+            DiagnosticLogger.error("BatteryUsageStats query failed", cause)
             if (cause is SecurityException) {
                 Triple(null, emptyList(), "Android restricts per-app power attribution on this build (BATTERY_STATS is privileged). Live battery readings and Usage Access data remain available.")
             } else {
                 Triple(null, emptyList(), "Battery statistics unavailable: ${cause.javaClass.simpleName}")
             }
         } catch (e: SecurityException) {
+            DiagnosticLogger.error("BatteryUsageStats permission denied", e)
             Triple(null, emptyList(), "Android restricts per-app power attribution on this build (BATTERY_STATS is privileged). Live battery readings and Usage Access data remain available.")
         } catch (e: Exception) {
+            DiagnosticLogger.error("BatteryUsageStats read failed", e)
             Triple(null, emptyList(), "Battery statistics unavailable: ${e.javaClass.simpleName}")
         }
     }
@@ -106,6 +111,7 @@ class AdvancedBatteryStatsReader(context: Context) {
                 .sortedByDescending { it.foregroundMillis }
             Pair(rows, if (rows.isEmpty()) "No usage data. Enable Usage Access for SysBattery." else null)
         } catch (e: RuntimeException) {
+            DiagnosticLogger.warn("UsageStats query failed", e)
             Pair(emptyList(), "Usage data unavailable: ${e.javaClass.simpleName}")
         }
     }
