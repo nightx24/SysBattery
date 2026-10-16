@@ -38,4 +38,9 @@ The recreation defaults to a configurable 10-second interval (bounded to 2–60 
 
 ## Known functional gaps
 
-This starter does not recreate per-app power attribution, deep-sleep accounting, historical persistence, wake-lock analysis, or component power estimates. Those require additional verified formulas/data sources and testing across devices.
+This implementation persists raw timestamped battery telemetry locally, but does not yet provide per-app power attribution, reliable historical deep-sleep accounting, a historical chart backed by the database, wake-lock analysis, or component power estimates. Those require additional verified formulas/data sources and testing across devices.
+
+
+## Persistent history added in SysBattery
+
+The monitor stores each observed sample in a local SQLite database with a timestamp, raw current, level, voltage, temperature, plug state, screen state, Android battery status, charge counter, available full-capacity value, and source metadata. Data is retained for up to 30 days. Missing readings are stored as SQL NULL; the store does not synthesize foreground-app, wake-lock, or component-energy values. The schema is based on common battery-history concepts observed in Battery Guru's DEX strings, not a claim that its private schema or calculation algorithm has been reproduced exactly.
