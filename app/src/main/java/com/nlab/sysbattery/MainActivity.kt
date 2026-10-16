@@ -115,11 +115,6 @@ class MainActivity : ComponentActivity() {
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
-    override fun onResume() {
-        super.onResume()
-        usageAccessGranted = hasUsageAccess()
-    }
-
     private fun hasUsageAccess(): Boolean {
         val appOps = getSystemService(AppOpsManager::class.java) ?: return false
         return appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName) == AppOpsManager.MODE_ALLOWED
@@ -236,6 +231,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        usageAccessGranted = hasUsageAccess()
         refreshShizukuStatus()
     }
 
