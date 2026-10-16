@@ -514,6 +514,7 @@ private fun BatteryDashboard(
             }
             }
             if (selectedTab == 2) {
+                Text("ADB & ADVANCED ACCESS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, letterSpacing = 1.4.sp)
                 GlassCard {
                     Text("ADB setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("Optional PC commands for extra diagnostics. Connect your phone with USB debugging enabled, approve the computer, then run copied commands in Fedora's terminal.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -532,6 +533,21 @@ private fun BatteryDashboard(
                         title = "Try granting BatteryStats",
                         description = if (batteryStatsPermissionGranted) "Permission is currently granted. Restart SysBattery and refresh app usage." else "Best-effort only. Your Android 16 user build previously rejected pm grant because the ADB shell lacks grant permissions. If it fails again, this command cannot bypass that restriction.",
                         command = "adb shell pm grant com.nlab.sysbattery android.permission.BATTERY_STATS"
+                    )
+                    AdbCommandRow(
+                        title = "Try enabling Usage Access through ADB",
+                        description = "Your current Android 16 build previously rejected this with MANAGE_APP_OPS_MODES. Use Android Settings if this fails.",
+                        command = "adb shell appops set com.nlab.sysbattery GET_USAGE_STATS allow"
+                    )
+                    AdbCommandRow(
+                        title = "Allow background monitoring in Doze",
+                        description = "Optional. This changes battery-optimization behavior; you can undo it with the remove command below.",
+                        command = "adb shell cmd deviceidle whitelist +com.nlab.sysbattery"
+                    )
+                    AdbCommandRow(
+                        title = "Remove background allowlist entry",
+                        description = "Undo the optional Doze allowlist change.",
+                        command = "adb shell cmd deviceidle whitelist -com.nlab.sysbattery"
                     )
                     AdbCommandRow(
                         title = "Read battery state",
@@ -640,10 +656,6 @@ private fun BatteryDashboard(
                     OutlinedButton(onClick = onExportDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Export logs…") }
                     OutlinedButton(onClick = onClearDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Clear logs") }
                 }
-            }
-            if (selectedTab == 2) {
-                Spacer(Modifier.height(2.dp))
-                Text("ADVANCED ACCESS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, letterSpacing = 1.4.sp)
             }
             if (showDiagnostics) {
                 AlertDialog(
