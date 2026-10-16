@@ -29,6 +29,19 @@ Android and individual manufacturers can still stop background work, restrict no
 
 Open this repository in Android Studio with JDK 17 and Android SDK 35, or run `./gradlew assembleDebug` after generating the Gradle wrapper. The project uses Android Gradle Plugin 8.7.3, Kotlin 2.0.21, Jetpack Compose, and Material 3.
 
+## Optional ADB permissions for advanced statistics
+
+SysBattery includes a helper in the dashboard to copy these commands for a connected, authorized ADB session:
+
+```sh
+adb shell pm grant com.nlab.sysbattery android.permission.BATTERY_STATS
+adb shell appops set com.nlab.sysbattery GET_USAGE_STATS allow
+```
+
+The app also provides a shortcut to Android's **Usage Access** settings. Depending on Android version and OEM security policy, the `BATTERY_STATS` grant can be rejected for ordinary apps; the command is best-effort, not a bypass of signature/privileged restrictions. Usage access is controlled separately by an AppOp and may require enabling SysBattery in Settings.
+
+These permissions are only access prerequisites. **They do not automatically create FKM-style per-app mAh attribution.** UsageStats can report app activity time, while battery attribution requires accessible BatteryStats data and supported APIs/permissions. Per-app energy attribution, wake-lock breakdowns, component power estimates, and FKM-equivalent history remain future work until implemented and validated on real devices. Do not treat usage duration as energy consumption.
+
 ## Notes and limitations
 
 - The default sampling interval is 10 seconds.
