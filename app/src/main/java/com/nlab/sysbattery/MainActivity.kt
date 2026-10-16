@@ -440,6 +440,9 @@ private fun BatteryDashboard(
         String.format(Locale.getDefault(), "%+.2f W", signed)
     } ?: "—"
     val cycleCount = sample?.cycleCount?.toString() ?: "Not reported"
+    val configuredDesignCapacityMah = settingsPrefs.getInt("design_capacity_mah", 0).takeIf { it in 500..20000 }?.toDouble()
+    val reportedDesignCapacityMah = sample?.designCapacityMicroAmpHours?.takeIf { it > 0L }?.div(1000.0)
+    val designCapacityMah = reportedDesignCapacityMah ?: configuredDesignCapacityMah
     val reportedFullCapacity = sample?.fullChargeCapacityMicroAmpHours
     val estimatedFullCapacity = sample?.estimatedFullChargeCapacityMicroAmpHours
     val displayedFullCapacity = reportedFullCapacity ?: estimatedFullCapacity
@@ -447,11 +450,10 @@ private fun BatteryDashboard(
         val prefix = if (reportedFullCapacity != null) "" else "~"
         prefix + String.format(Locale.getDefault(), "%.0f mAh", it / 1000.0)
     } ?: "Not reported"
-    val healthEstimate = if (displayedFullCapacity != null &&
-        sample?.designCapacityMicroAmpHours != null && sample.designCapacityMicroAmpHours > 0L) {
+    val healthEstimate = if (displayedFullCapacity != null && designCapacityMah != null && designCapacityMah > 0.0) {
         String.format(Locale.getDefault(), "%.0f%%",
-            displayedFullCapacity * 100.0 / sample.designCapacityMicroAmpHours)
-    } else "Needs design capacity"
+            (displayedFullCapacity / 1000.0 * 100.0 / designCapacityMah).coerceIn(0.0, 200.0))
+    } else "Set design capacity"
     val health = when (sample?.health) {
         android.os.BatteryManager.BATTERY_HEALTH_GOOD -> "Good"
         android.os.BatteryManager.BATTERY_HEALTH_OVERHEAT -> "Overheating"
@@ -1122,6 +1124,7 @@ private fun BatteryMonitorSettings(
     var idleWarning by remember { mutableStateOf(prefs.getBoolean("idle_warning", true)) }
     var showBatteryIcon by remember { mutableStateOf(prefs.getBoolean("show_battery_icon", false)) }
     var showChargingPower by remember { mutableStateOf(prefs.getBoolean("show_charging_power", true)) }
+    var designCapacityInput by remember(preferencesRevision) { mutableStateOf(prefs.getInt("design_capacity_mah", 0).takeIf { it > 0 }?.toString() ?: "") }
     var threshold by remember { mutableFloatStateOf(prefs.getInt("reset_threshold_percent", 90).toFloat()) }
     var warning by remember { mutableFloatStateOf(prefs.getInt("idle_warning_percent", 5).toFloat()) }
     var temperatureUnit by remember(preferencesRevision) {
@@ -1160,6 +1163,35 @@ private fun BatteryMonitorSettings(
         Slider(value = warning, onValueChange = { warning = it }, valueRange = 1f..20f, steps = 18,
             onValueChangeFinished = { prefs.edit().putInt("idle_warning_percent", warning.toInt()).apply() },
             enabled = idleWarning)
+        HorizontalDivider()
+        Text("Battery design capacity", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "Optional: enter the rated capacity from your phone specifications if Android does not expose it. The health value remains an estimate.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall
+        )
+        OutlinedTextField(
+            value = designCapacityInput,
+            onValueChange = { input -> if (input.length <= 5 && input.all { it.isDigit() }) designCapacityInput = input },
+            label = { Text("Design capacity (mAh)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = {
+                prefs.edit().remove("design_capacity_mah").apply()
+                designCapacityInput = ""
+                onPreferencesChanged()
+            }, modifier = Modifier.weight(1f)) { Text("Clear") }
+            Button(onClick = {
+                val value = designCapacityInput.toIntOrNull()
+                if (value != null && value in 500..20000) {
+                    prefs.edit().putInt("design_capacity_mah", value).apply()
+                    onPreferencesChanged()
+                    Toast.makeText(context, "Design capacity saved", Toast.LENGTH_SHORT).show()
+                }
+            }, enabled = designCapacityInput.toIntOrNull() in 500..20000, modifier = Modifier.weight(1f)) { Text("Save capacity") }
+        }
         HorizontalDivider()
         Text("Battery temperature unit", style = MaterialTheme.typography.titleSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
