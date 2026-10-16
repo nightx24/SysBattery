@@ -266,12 +266,14 @@ class MainActivity : ComponentActivity() {
         try {
             Shizuku.bindUserService(shizukuUserServiceArgs, shizukuServiceConnection)
         } catch (e: Exception) {
+            DiagnosticLogger.error("Failed to bind Shizuku BatteryStats service", e)
             shizukuServiceBinding = false
             shizukuStatus = "Could not bind Shizuku service: ${e.javaClass.simpleName}"
         }
     }
 
     private fun requestShizukuAccess() {
+        DiagnosticLogger.info("Shizuku authorization requested")
         if (!Shizuku.pingBinder()) {
             val launchIntent = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
             if (launchIntent != null) {
