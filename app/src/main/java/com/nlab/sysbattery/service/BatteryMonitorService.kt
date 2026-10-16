@@ -166,13 +166,38 @@ class BatteryMonitorService : Service() {
             preferences.getBoolean("reset_on_plug", true)) {
             resetCounters()
             thresholdResetTriggered = false
+            rateSamples.clear()
         }
         if (charging != null) previousCharging = charging
-        val rates = BatteryStatsCalculator.calculate(previous, sample, charging)
+
+        val direction = when (charging) {
+            true -> BatteryStatsCalculator.Direction.CHARGING
+            false -> BatteryStatsCalculator.Direction.DISCHARGING
+            null -> BatteryStatsCalculator.Direction.UNKNOWN
+        }
+        if (lastRateDirection != null && direction != BatteryStatsCalculator.Direction.UNKNOWN &&
+            lastRateDirection != direction) rateSamples.clear()
+        if (direction != BatteryStatsCalculator.Direction.UNKNOWN) lastRateDirection = direction
+        rateSamples.add(BatteryStatsCalculator.TimedSample(
+            sample.timestampMillis, sample.levelPercent, sample.currentMicroAmps, sample.chargeCounterMicroAmpHours
+        ))
+        trimRateSamples(sample.timestampMillis)
+        persistRateSamples()
+        val rates = BatteryStatsCalculator.calculateWindowed(rateSamples, sample, charging)
+
         val now = sample.timestampMillis
         val elapsed = if (previousTimestamp > 0L) (now - previousTimestamp).coerceAtLeast(0L) else 0L
         val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-        if (interactive) screenOnMillis += elapsed else screenOffMillis += elapsed
+        val nowElapsed = SystemClock.elapsedRealtime()
+        if (screenStateInteractive == null) {
+            screenStateInteractive = interactive
+            screenStateSinceElapsed = nowElapsed
+        } else if (screenStateInteractive != interactive) {
+            updateScreenState(interactive, nowElapsed)
+        } else {
+            accumulateScreenTime(nowElapsed)
+        }
+
         val oldLevel = previousLevel
         val newLevel = sample.levelPercent
         val resetAtThreshold = preferences.getBoolean("reset_at_threshold", true)
@@ -182,17 +207,14 @@ class BatteryMonitorService : Service() {
         } else if (resetAtThreshold && !thresholdResetTriggered) {
             resetCounters()
             thresholdResetTriggered = true
+            rateSamples.clear()
         }
-        if (oldLevel != null && newLevel != null && charging != true && oldLevel > newLevel) {
-            val deltaMillis = (now - previousTimestamp).coerceAtLeast(0L)
-            // Ignore implausible stale/backwards samples; large level jumps over short windows can
-            // follow wake-from-sleep or vendor reporting glitches.
-            if (deltaMillis >= 0L && oldLevel - newLevel <= 10) {
-                val drop = (oldLevel - newLevel).toDouble()
-                if (interactive) activeDrainPercent += drop else idleDrainPercent += drop
-            }
+        if (oldLevel != null && newLevel != null && charging != true && oldLevel > newLevel &&
+            oldLevel - newLevel <= 10 && elapsed > 0L) {
+            val drop = (oldLevel - newLevel).toDouble()
+            if (screenStateInteractive == true) activeDrainPercent += drop else idleDrainPercent += drop
         }
-        if (interactive) activeDrainMillis += elapsed else idleDrainMillis += elapsed
+        if (screenStateInteractive == true) activeDrainMillis += elapsed else idleDrainMillis += elapsed
 
         mutableState.value = MonitorState(sample, rates)
         runCatching {
