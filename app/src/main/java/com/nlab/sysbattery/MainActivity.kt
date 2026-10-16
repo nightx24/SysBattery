@@ -1002,7 +1002,7 @@ private fun AdbCommandRow(
                     modifier = Modifier.height(40.dp)
                 ) {
                     Icon(
-                        if (copied) Icons.Rounded.BatteryChargingFull else Icons.Rounded.ContentCopy,
+                        Icons.Rounded.ContentCopy,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )
