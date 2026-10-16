@@ -248,7 +248,7 @@ class BatteryMonitorService : Service() {
             "Screen off: " + formatDuration(screenOffMillis) + " (" + String.format(Locale.getDefault(), "%.1f", screenOffPercent) + "%)"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
+            .setSmallIcon(com.nlab.sysbattery.R.drawable.ic_sysbattery_status)
             .setContentTitle("SysBattery")
             .setContentText(summary)
             .setContentIntent(PendingIntent.getActivity(
