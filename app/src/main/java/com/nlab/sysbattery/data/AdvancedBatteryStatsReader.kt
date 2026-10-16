@@ -3,7 +3,6 @@ package com.nlab.sysbattery.data
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Build
-import android.os.BatteryStatsManager
 import java.util.concurrent.TimeUnit
 
 /**
@@ -48,7 +47,7 @@ class AdvancedBatteryStatsReader(context: Context) {
             return Triple(null, emptyList(), "BatteryUsageStats requires Android 12 or newer.")
         }
         return try {
-            val manager = appContext.getSystemService(BatteryStatsManager::class.java)
+            val manager = appContext.getSystemService("batterystats")
                 ?: return Triple(null, emptyList(), "BatteryStatsManager unavailable.")
             // Reflection keeps this reader tolerant of API signature differences across SDK stubs.
             val stats = manager.javaClass.getMethod("getBatteryUsageStats").invoke(manager)
@@ -59,7 +58,7 @@ class AdvancedBatteryStatsReader(context: Context) {
             val consumers = stats.javaClass.methods.firstOrNull {
                 it.name == "getUidBatteryConsumers" && it.parameterCount == 0
             }?.invoke(stats) as? Iterable<*>
-            val apps = consumers.orEmpty().mapNotNull { consumer ->
+            val apps: List<AppEnergy> = (consumers ?: emptyList<Any>()).mapNotNull { consumer ->
                 if (consumer == null) return@mapNotNull null
                 val uid = (consumer.javaClass.methods.firstOrNull {
                     it.name == "getUid" && it.parameterCount == 0
