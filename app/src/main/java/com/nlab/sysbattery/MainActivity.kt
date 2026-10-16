@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -381,10 +382,10 @@ private fun BatteryDashboard(
         else String.format(Locale.getDefault(), "%.1f °C", celsius)
     } ?: "—"
     val voltage = sample?.voltageMilliVolts?.let { "$it mV" } ?: "—"
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var selectedOptionsPage by remember { mutableIntStateOf(0) }
-    LaunchedEffect(selectedTab, usageAccessGranted) {
-        if (selectedTab == 1 && usageAccessGranted) onRefreshAdvanced()
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var selectedOptionsPage by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 1) onRefreshAdvanced()
     }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
