@@ -627,7 +627,7 @@ private fun BatteryDashboard(
                 GlassCard {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                            Icon(Icons.Rounded.Tune, contentDescription = null, modifier = Modifier.padding(10.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.padding(10.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text("Access overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -1002,7 +1002,7 @@ private fun AdbCommandRow(
                     modifier = Modifier.height(40.dp)
                 ) {
                     Icon(
-                        if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                        if (copied) Icons.Rounded.BatteryChargingFull else Icons.Rounded.ContentCopy,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )
