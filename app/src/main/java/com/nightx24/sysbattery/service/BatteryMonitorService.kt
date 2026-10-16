@@ -1,4 +1,4 @@
-package com.nightx24.sysbattery.service
+package com.nlab.sysbattery.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -10,8 +10,8 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.nightx24.sysbattery.data.BatterySysfsReader
-import com.nightx24.sysbattery.domain.BatteryStatsCalculator
+import com.nlab.sysbattery.data.BatterySysfsReader
+import com.nlab.sysbattery.domain.BatteryStatsCalculator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,8 +37,8 @@ class BatteryMonitorService : Service() {
     )
 
     companion object {
-        const val ACTION_START = "com.nightx24.sysbattery.action.START"
-        const val ACTION_STOP = "com.nightx24.sysbattery.action.STOP"
+        const val ACTION_START = "com.nlab.sysbattery.action.START"
+        const val ACTION_STOP = "com.nlab.sysbattery.action.STOP"
         const val EXTRA_INTERVAL_MS = "interval_ms"
         private const val DEFAULT_INTERVAL_MS = 10_000L
         private const val CHANNEL_ID = "sysbattery_monitor"
