@@ -41,6 +41,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.nlab.sysbattery.data.BatterySysfsReader
 import com.nlab.sysbattery.data.AdvancedBatteryStatsReader
+import com.nlab.sysbattery.data.RootAccessReader
 import com.nlab.sysbattery.domain.BatteryStatsCalculator
 import com.nlab.sysbattery.service.BatteryMonitorService
 import rikka.shizuku.Shizuku
@@ -68,6 +69,8 @@ class MainActivity : ComponentActivity() {
             var running by remember { mutableStateOf(prefs.getBoolean("monitor_enabled", false)) }
             var advancedReport by remember { mutableStateOf<AdvancedBatteryStatsReader.Report?>(null) }
             var advancedError by remember { mutableStateOf<String?>(null) }
+            var rootReport by remember { mutableStateOf<RootAccessReader.RootReport?>(null) }
+            var rootLoading by remember { mutableStateOf(false) }
             SysBatteryTheme {
                 BatteryDashboard(
                     sample = state.sample, rates = state.rates, running = running, shizukuMessage = shizukuMessage,
@@ -100,6 +103,15 @@ class MainActivity : ComponentActivity() {
                     },
                     advancedReport = advancedReport,
                     advancedError = advancedError,
+                    rootReport = rootReport,
+                    rootLoading = rootLoading,
+                    onRefreshRoot = {
+                        rootLoading = true
+                        Thread {
+                            val report = RootAccessReader().read()
+                            runOnUiThread { rootReport = report; rootLoading = false }
+                        }.start()
+                    },
                     onRefreshAdvanced = {
                         try {
                             advancedReport = AdvancedBatteryStatsReader(this).read()
@@ -148,6 +160,9 @@ private fun BatteryDashboard(
     onCopyAdb: () -> Unit,
     advancedReport: AdvancedBatteryStatsReader.Report?,
     advancedError: String?,
+    rootReport: RootAccessReader.RootReport?,
+    rootLoading: Boolean,
+    onRefreshRoot: () -> Unit,
     onRefreshAdvanced: () -> Unit
 ) {
     val dark = isSystemInDarkTheme()
@@ -273,8 +288,28 @@ private fun BatteryDashboard(
                 }
             }
             GlassCard {
-                Text("Advanced access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Shizuku access is optional and device-dependent.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Text("Root access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Optional for rooted devices. SysBattery requests root through su and only runs read-only battery-statistics and power-state diagnostics. Approve the superuser prompt in your root manager.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(onClick = onRefreshRoot, enabled = !rootLoading, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Text(if (rootLoading) "Checking root…" else "Check root & read system stats")
+                }
+                rootReport?.let { report ->
+                    Text(if (report.rooted) "Root granted · ${report.identity}" else "Root unavailable · ${report.identity}",
+                        color = if (report.rooted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                    report.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    report.batteryStats?.let {
+                        Text("BatteryStats output", fontWeight = FontWeight.SemiBold)
+                        Text(it.take(4500), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    report.powerState?.let {
+                        Text("Power-state output", fontWeight = FontWeight.SemiBold)
+                        Text(it.take(2500), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 OutlinedButton(onClick = onShizuku, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("Check Shizuku access") }
                 shizukuMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 Text("Source: ${sample?.source ?: "waiting for first sample"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
