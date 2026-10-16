@@ -2,8 +2,12 @@ package com.nlab.sysbattery.domain
 
 import com.nlab.sysbattery.data.BatterySysfsReader
 import kotlin.math.abs
+import kotlin.math.max
 
-/** Transparent estimates; not claimed to match unverified proprietary formulas. */
+/**
+ * Estimates battery rates from a trailing window, rather than a single percentage step.
+ * These are best-effort device metrics, not proprietary kernel-manager calculations.
+ */
 object BatteryStatsCalculator {
     enum class Direction { CHARGING, DISCHARGING, UNKNOWN }
 
@@ -19,47 +23,112 @@ object BatteryStatsCalculator {
         val batteryPercentPerHour: Double?,
         val estimatedDischargeMilliAmpHours: Double?,
         val chargeCounterDeltaMilliAmpHours: Double?,
-        val direction: Direction
+        val direction: Direction,
+        val powerWattsMagnitude: Double? = null,
+        val sampleCount: Int = 0,
+        val currentSource: String = "unavailable"
     )
+
+    data class TimedSample(
+        val timestampMillis: Long,
+        val levelPercent: Int?,
+        val currentMicroAmps: Long?,
+        val chargeCounterMicroAmpHours: Long?
+    )
+
+    private const val WINDOW_MS = 10 * 60 * 1000L
+    private const val MIN_RATE_SPAN_MS = 60 * 1000L
+    private const val MIN_LEVEL_RATE_SPAN_MS = 3 * 60 * 1000L
+    private const val MIN_SAMPLE_SPACING_MS = 15 * 1000L
+    private const val MAX_SAMPLES = 60
+    private const val MAX_PLAUSIBLE_CURRENT_MA = 15_000.0
+    private const val MAX_PLAUSIBLE_RATE = 500.0
 
     fun calculate(
         previous: PreviousSample?,
         current: BatterySysfsReader.Snapshot,
         isCharging: Boolean?
+    ): Rates = calculateWindowed(
+        previous?.let {
+            listOf(TimedSample(it.timestampMillis, it.levelPercent, it.currentMicroAmps, it.chargeCounterMicroAmpHours))
+        }.orEmpty() + TimedSample(
+            current.timestampMillis, current.levelPercent, current.currentMicroAmps,
+            current.chargeCounterMicroAmpHours
+        ),
+        current,
+        isCharging
+    )
+
+    fun calculateWindowed(
+        samples: List<TimedSample>,
+        current: BatterySysfsReader.Snapshot,
+        isCharging: Boolean?
     ): Rates {
-        val currentMa = current.currentMicroAmps?.div(1_000.0)
         val direction = when (isCharging) {
             true -> Direction.CHARGING
             false -> Direction.DISCHARGING
-            null -> when {
-                currentMa == null || currentMa == 0.0 -> Direction.UNKNOWN
-                currentMa < 0 -> Direction.DISCHARGING // common convention, not universal
-                else -> Direction.CHARGING
+            null -> Direction.UNKNOWN
+        }
+        val now = current.timestampMillis
+        val window = samples.asSequence()
+            .filter { it.timestampMillis <= now && now - it.timestampMillis <= WINDOW_MS }
+            .sortedBy { it.timestampMillis }
+            .fold(mutableListOf<TimedSample>()) { result, sample ->
+                if (result.isEmpty() || sample.timestampMillis - result.last().timestampMillis >= MIN_SAMPLE_SPACING_MS) {
+                    result.add(sample)
+                }
+                result
+            }.takeLast(MAX_SAMPLES)
+
+        val usableCurrent = window.mapNotNull { sample ->
+            sample.currentMicroAmps?.let { raw ->
+                val ma = abs(raw) / 1_000.0
+                if (ma in 1.0..MAX_PLAUSIBLE_CURRENT_MA) ma else null
             }
         }
-        if (previous == null) return Rates(currentMa?.let(::abs), null, null, null, direction)
-        val elapsed = current.timestampMillis - previous.timestampMillis
-        if (elapsed <= 0L) return Rates(currentMa?.let(::abs), null, null, null, direction)
+        val currentMa = usableCurrent.takeIf { it.isNotEmpty() }?.average()
+            ?: current.currentMicroAmps?.let { raw ->
+                (abs(raw) / 1_000.0).takeIf { it in 1.0..MAX_PLAUSIBLE_CURRENT_MA }
+            }
+        val voltageMv = current.voltageMilliVolts?.takeIf { it in 2_500L..5_000L }
+        val powerW = if (currentMa != null && voltageMv != null) currentMa * voltageMv / 1_000_000.0 else null
 
-        val percentDrop = if (previous.levelPercent != null && current.levelPercent != null) {
-            previous.levelPercent - current.levelPercent
+        val first = window.firstOrNull()
+        val last = window.lastOrNull()
+        val span = if (first != null && last != null) last.timestampMillis - first.timestampMillis else 0L
+        val levelDrop = if (first?.levelPercent != null && last?.levelPercent != null) {
+            first.levelPercent - last.levelPercent
         } else null
-        // Report discharge only: an increasing percentage while charging is not battery drain.
-        val percentPerHour = if (direction == Direction.DISCHARGING && percentDrop != null && percentDrop > 0) {
-            percentDrop * 3_600_000.0 / elapsed
-        } else null
-
-        val counterDelta = if (previous.chargeCounterMicroAmpHours != null &&
-            current.chargeCounterMicroAmpHours != null) {
-            (current.chargeCounterMicroAmpHours - previous.chargeCounterMicroAmpHours) / 1_000.0
+        val levelRate = if (direction == Direction.DISCHARGING && span >= MIN_LEVEL_RATE_SPAN_MS &&
+            levelDrop != null && levelDrop > 0 && levelDrop <= 10) {
+            levelDrop * 3_600_000.0 / span
         } else null
 
-        // µA / 1000 = mA; mA × elapsed milliseconds / 3,600,000 = mAh.
-        val integratedMah = currentMa?.let { abs(it) * elapsed / 3_600_000.0 }
-        return Rates(currentMilliAmpsMagnitude = currentMa?.let(::abs),
-            batteryPercentPerHour = percentPerHour,
-            estimatedDischargeMilliAmpHours = if (direction == Direction.DISCHARGING) integratedMah else null,
-            chargeCounterDeltaMilliAmpHours = counterDelta,
-            direction = direction)
+        val chargeDelta = if (first?.chargeCounterMicroAmpHours != null &&
+            last?.chargeCounterMicroAmpHours != null) {
+            (last.chargeCounterMicroAmpHours - first.chargeCounterMicroAmpHours) / 1_000.0
+        } else null
+
+        // Charge counter is preferred when it is moving plausibly. Level-based rate is a slower fallback.
+        val counterRate = if (direction == Direction.DISCHARGING && span > 0L &&
+            chargeDelta != null && chargeDelta < 0.0 && -chargeDelta <= 20_000.0) {
+            (-chargeDelta * 60.0 / (span / 60_000.0)) // mAh/h; kept as a capacity-independent diagnostic
+        } else null
+        val pctRate = levelRate?.takeIf { it in 0.0..MAX_PLAUSIBLE_RATE }
+        val rate = pctRate
+        val integratedMah = if (currentMa != null && span > 0L && direction == Direction.DISCHARGING) {
+            currentMa * span / 3_600_000.0
+        } else null
+
+        return Rates(
+            currentMilliAmpsMagnitude = currentMa,
+            batteryPercentPerHour = rate,
+            estimatedDischargeMilliAmpHours = integratedMah,
+            chargeCounterDeltaMilliAmpHours = chargeDelta ?: counterRate,
+            direction = direction,
+            powerWattsMagnitude = powerW?.takeIf { it.isFinite() },
+            sampleCount = window.size,
+            currentSource = if (usableCurrent.isNotEmpty()) "rolling-current-average" else if (currentMa != null) "instant-current" else "unavailable"
+        )
     }
 }
