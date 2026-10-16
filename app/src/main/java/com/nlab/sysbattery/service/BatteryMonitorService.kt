@@ -221,7 +221,9 @@ class BatteryMonitorService : Service() {
                 idleDrainPercent += drop * offElapsed / trackedElapsed
             }
         }
-        if (elapsed > 0L) {
+        // Rate denominators must include only time spent discharging. Counting time
+        // while charging would dilute the FKM-style active/idle drain rates toward zero.
+        if (charging == false && elapsed > 0L) {
             activeDrainMillis += onElapsed
             idleDrainMillis += offElapsed
         }
