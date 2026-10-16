@@ -3,6 +3,8 @@ package com.nlab.sysbattery
 import android.Manifest
 import android.app.AppOpsManager
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
@@ -68,6 +70,7 @@ class MainActivity : ComponentActivity() {
     private var shizukuLoading by mutableStateOf(false)
     private var showDiagnostics by mutableStateOf(false)
     private var usageAccessGranted by mutableStateOf(false)
+    private var batteryStatsPermissionGranted by mutableStateOf(false)
     private val exportDiagnostics = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) runCatching {
             contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(DiagnosticLogger.readLogs()) }
@@ -119,6 +122,9 @@ class MainActivity : ComponentActivity() {
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    private fun hasBatteryStatsPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.BATTERY_STATS) == PackageManager.PERMISSION_GRANTED
+
     private fun hasUsageAccess(): Boolean {
         val appOps = getSystemService(AppOpsManager::class.java) ?: return false
         return appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName) == AppOpsManager.MODE_ALLOWED
@@ -130,6 +136,7 @@ class MainActivity : ComponentActivity() {
         DiagnosticLogger.initialize(applicationContext)
         DiagnosticLogger.info("MainActivity created")
         usageAccessGranted = hasUsageAccess()
+        batteryStatsPermissionGranted = hasBatteryStatsPermission()
         refreshShizukuStatus()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -171,6 +178,7 @@ class MainActivity : ComponentActivity() {
                     },
                     advancedReport = advancedReport,
                     usageAccessGranted = usageAccessGranted,
+                    batteryStatsPermissionGranted = batteryStatsPermissionGranted,
                     advancedError = advancedError,
                     rootReport = rootReport,
                     rootLoading = rootLoading,
@@ -351,6 +359,7 @@ private fun BatteryDashboard(
     onUsageAccess: () -> Unit,
     advancedReport: AdvancedBatteryStatsReader.Report?,
     usageAccessGranted: Boolean,
+    batteryStatsPermissionGranted: Boolean,
     advancedError: String?,
     rootReport: RootAccessReader.RootReport?,
     rootLoading: Boolean,
@@ -505,6 +514,39 @@ private fun BatteryDashboard(
             }
             }
             if (selectedTab == 2) {
+                GlassCard {
+                    Text("ADB setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Optional PC commands for extra diagnostics. Connect your phone with USB debugging enabled, approve the computer, then run copied commands in Fedora's terminal.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(shape = CircleShape, color = if (batteryStatsPermissionGranted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
+                            Text(if (batteryStatsPermissionGranted) "Granted" else "Not granted", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = if (batteryStatsPermissionGranted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("BATTERY_STATS", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    AdbCommandRow(
+                        title = "Check Usage Access",
+                        description = "Read-only check. Expected result includes GET_USAGE_STATS: allow.",
+                        command = "adb shell appops get com.nlab.sysbattery GET_USAGE_STATS"
+                    )
+                    AdbCommandRow(
+                        title = "Try granting BatteryStats",
+                        description = if (batteryStatsPermissionGranted) "Permission is currently granted. Restart SysBattery and refresh app usage." else "Best-effort only. Your Android 16 user build previously rejected pm grant because the ADB shell lacks grant permissions. If it fails again, this command cannot bypass that restriction.",
+                        command = "adb shell pm grant com.nlab.sysbattery android.permission.BATTERY_STATS"
+                    )
+                    AdbCommandRow(
+                        title = "Read battery state",
+                        description = "Diagnostic output from Android; does not grant permission to SysBattery.",
+                        command = "adb shell dumpsys battery"
+                    )
+                    AdbCommandRow(
+                        title = "Read battery history",
+                        description = "System battery accounting output for troubleshooting.",
+                        command = "adb shell dumpsys batterystats --charged"
+                    )
+                    Text("ADB cannot elevate SysBattery's own privileges on every production ROM. BATTERY_STATS is signature/privileged/development; DUMP is not intended for third-party apps. If the grant is rejected, use Usage Access for foreground time, or the existing Shizuku/root integrations for supported privileged reads.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (selectedTab == 2) {
             GlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -624,6 +666,37 @@ private fun BatteryDashboard(
                 NavigationBarItem(selected = selectedTab == index, onClick = { selectedTab = index }, icon = { Icon(icon, contentDescription = label) }, label = { Text(label) }, alwaysShowLabel = true)
             }
         }
+    }
+}
+
+@Composable
+private fun AdbCommandRow(
+    title: String,
+    description: String,
+    command: String
+) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Text(command, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+        }
+        OutlinedButton(
+            onClick = {
+                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(ClipData.newPlainText(title, command))
+                Toast.makeText(context, "ADB command copied", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.align(Alignment.End)
+        ) { Text("Copy command") }
     }
 }
 
