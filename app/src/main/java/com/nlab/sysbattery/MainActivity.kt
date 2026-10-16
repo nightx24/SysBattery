@@ -627,8 +627,7 @@ private fun BatteryDashboard(
                     icon = { Icon(Icons.Rounded.Bolt, contentDescription = null) },
                     initiallyExpanded = false
                 ) {
-                    Text("Optional PC commands for extra diagnostics. Connect your phone with USB debugging enabled, approve the computer, then run copied commands in Fedora's terminal.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                    Text("Optional PC commands for extra diagnostics. Connect your phone with USB debugging enabled, approve the computer, then run copied commands in Fedora's terminal.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    Text("Optional commands for advanced diagnostics. Connect a computer with USB debugging enabled, approve the computer on your device, and run copied commands in a terminal.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(shape = CircleShape, color = if (batteryStatsPermissionGranted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
                             Text(if (batteryStatsPermissionGranted) "Granted" else "Not granted", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = if (batteryStatsPermissionGranted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -642,12 +641,12 @@ private fun BatteryDashboard(
                     )
                     AdbCommandRow(
                         title = "Try granting BatteryStats",
-                        description = if (batteryStatsPermissionGranted) "Permission is currently granted. Restart SysBattery and refresh app usage." else "Best-effort only. Your Android 16 user build previously rejected pm grant because the ADB shell lacks grant permissions. If it fails again, this command cannot bypass that restriction.",
+                        description = if (batteryStatsPermissionGranted) "Permission is granted. Refresh advanced statistics to check available readings." else "Optional diagnostic command. Android may reject this permission on production devices; it cannot bypass system-level restrictions.",
                         command = "adb shell pm grant com.nlab.sysbattery android.permission.BATTERY_STATS"
                     )
                     AdbCommandRow(
                         title = "Try enabling Usage Access through ADB",
-                        description = "Your current Android 16 build previously rejected this with MANAGE_APP_OPS_MODES. Use Android Settings if this fails.",
+                        description = "May be blocked on production devices. If it fails, enable Usage Access from Android Settings.",
                         command = "adb shell appops set com.nlab.sysbattery GET_USAGE_STATS allow"
                     )
                     AdbCommandRow(
@@ -670,7 +669,7 @@ private fun BatteryDashboard(
                         description = "System battery accounting output for troubleshooting.",
                         command = "adb shell dumpsys batterystats --charged"
                     )
-                    Text("ADB cannot elevate SysBattery's own privileges on every production ROM. BATTERY_STATS is signature/privileged/development; DUMP is not intended for third-party apps. If the grant is rejected, use Usage Access for foreground time, or the existing Shizuku/root integrations for supported privileged reads.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    Text("Android controls access to privileged battery statistics. Availability varies by device and OS version. Live battery readings work without these optional commands; Usage Access, Shizuku, or root may provide additional data when supported.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (selectedTab == 2) {
