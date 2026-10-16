@@ -437,14 +437,17 @@ class BatteryMonitorService : Service() {
             idleRate.removeSuffix("%/hr").toDoubleOrNull()?.let { it > idleWarningLimit } == true) {
             "High idle drain detected: $idleRate (limit " + idleWarningLimit + "%/h)"
         } else null
-        val screenTotals = synchronized(screenStateLock) { Pair(screenOnMillis, screenOffMillis) }
-        // Include the current in-progress screen interval in display and ratio values.
-        val currentNow = SystemClock.elapsedRealtime()
-        val currentScreen = updateAndMeasureScreenTime(
-            (getSystemService(POWER_SERVICE) as PowerManager).isInteractive, currentNow
-        )
-        val shownOnMillis = screenTotals.first + currentScreen.first
-        val shownOffMillis = screenTotals.second + currentScreen.second
+        // Read accumulated totals without consuming the sampling deltas.
+        // Notification refreshes can occur more often than telemetry sampling.
+        val (shownOnMillis, shownOffMillis) = synchronized(screenStateLock) {
+            val now = SystemClock.elapsedRealtime()
+            val extra = (now - screenStateSinceElapsed).coerceAtLeast(0L)
+            when (screenStateInteractive) {
+                true -> Pair(screenOnMillis + extra, screenOffMillis)
+                false -> Pair(screenOnMillis, screenOffMillis + extra)
+                null -> Pair(screenOnMillis, screenOffMillis)
+            }
+        }
         val totalSessionMillis = (shownOnMillis + shownOffMillis).coerceAtLeast(0L)
         val screenOnShare = if (totalSessionMillis > 0L) shownOnMillis * 100.0 / totalSessionMillis else 0.0
         val screenOffShare = if (totalSessionMillis > 0L) shownOffMillis * 100.0 / totalSessionMillis else 0.0
