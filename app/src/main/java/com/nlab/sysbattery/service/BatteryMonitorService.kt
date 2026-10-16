@@ -568,7 +568,7 @@ class BatteryMonitorService : Service() {
         val hours = totalSeconds / 3600L
         val minutes = (totalSeconds % 3600L) / 60L
         val seconds = totalSeconds % 60L
-        return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m ${seconds}s"
+        return if (hours > 0) "${hours}h ${minutes}m ${seconds}s" else "${minutes}m ${seconds}s"
     }
 
     override fun onDestroy() {
