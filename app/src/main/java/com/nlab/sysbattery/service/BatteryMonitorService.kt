@@ -13,6 +13,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.nlab.sysbattery.data.BatterySysfsReader
 import com.nlab.sysbattery.domain.BatteryStatsCalculator
@@ -47,6 +48,19 @@ class BatteryMonitorService : Service() {
     private var idleDrainMillis = 0L
     private var previousCharging: Boolean? = null
     private var thresholdResetTriggered = false
+    private var screenStateInteractive: Boolean? = null
+    private var screenStateSinceElapsed = 0L
+    private val rateSamples = mutableListOf<BatteryStatsCalculator.TimedSample>()
+    private var lastRateDirection: BatteryStatsCalculator.Direction? = null
+    private var screenReceiverRegistered = false
+    private val screenStateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_ON -> updateScreenState(true)
+                Intent.ACTION_SCREEN_OFF -> updateScreenState(false)
+            }
+        }
+    }
 
     data class MonitorState(
         val sample: BatterySysfsReader.Snapshot? = null,
@@ -100,6 +114,10 @@ class BatteryMonitorService : Service() {
         reader = BatterySysfsReader(applicationContext)
         restoreCounters()
         createNotificationChannel()
+        restoreRateSamples()
+        registerScreenStateReceiver()
+        screenStateInteractive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
+        screenStateSinceElapsed = SystemClock.elapsedRealtime()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
