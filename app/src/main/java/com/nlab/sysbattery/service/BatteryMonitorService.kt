@@ -163,9 +163,14 @@ class BatteryMonitorService : Service() {
             resetCounters()
             thresholdResetTriggered = true
         }
-        if (oldLevel != null && newLevel != null && newLevel < oldLevel && charging != true) {
-            val drop = (oldLevel - newLevel).toDouble()
-            if (interactive) activeDrainPercent += drop else idleDrainPercent += drop
+        if (oldLevel != null && newLevel != null && charging != true && oldLevel > newLevel) {
+            val deltaMillis = (now - previousTimestamp).coerceAtLeast(0L)
+            // Ignore implausible stale/backwards samples; large level jumps over short windows can
+            // follow wake-from-sleep or vendor reporting glitches.
+            if (deltaMillis >= 0L && oldLevel - newLevel <= 10) {
+                val drop = (oldLevel - newLevel).toDouble()
+                if (interactive) activeDrainPercent += drop else idleDrainPercent += drop
+            }
         }
         if (interactive) activeDrainMillis += elapsed else idleDrainMillis += elapsed
 
