@@ -1,5 +1,7 @@
 package com.nlab.sysbattery.data
 
+import com.nlab.sysbattery.diagnostics.DiagnosticLogger
+
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
@@ -25,12 +27,15 @@ class RootAccessReader {
         val rooted = identityResult.exitCode == 0 &&
             (identity.contains("uid=0") || identity.contains("gid=0"))
         if (!rooted) {
+            DiagnosticLogger.info("Root diagnostics unavailable: su missing or permission denied")
             return RootReport(false, identity.ifBlank { "su unavailable or root denied" }, null, null, null, emptyList(),
                 identityResult.error ?: "Root access was not granted. Install/configure Magisk or another su provider and approve the prompt.")
         }
+        DiagnosticLogger.info("Root diagnostics started")
         val battery = runRootCommand("dumpsys batterystats --charged | head -c 24000")
         val power = runRootCommand("dumpsys power | head -c 12000")
         val history = runRootCommand("dumpsys batterystats --history | head -c 12000")
+        DiagnosticLogger.info("Root diagnostics completed; batteryOutputChars=${battery.output.length}")
         return RootReport(
             rooted = true,
             identity = identity,
@@ -70,6 +75,7 @@ class RootAccessReader {
             }
             CommandResult(process.exitValue(), output, if (process.exitValue() == 0) null else "su command exited ${process.exitValue()}")
         } catch (e: Exception) {
+            DiagnosticLogger.warn("Root diagnostics command failed", e)
             CommandResult(-1, "", "${e.javaClass.simpleName}: ${e.message ?: "root command unavailable"}")
         }
     }

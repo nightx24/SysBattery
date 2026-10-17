@@ -1,5 +1,7 @@
 package com.nlab.sysbattery.data
 
+import com.nlab.sysbattery.diagnostics.DiagnosticLogger
+
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Build
@@ -49,8 +51,18 @@ class AdvancedBatteryStatsReader(context: Context) {
         return try {
             val manager = appContext.getSystemService("batterystats")
                 ?: return Triple(null, emptyList(), "BatteryStatsManager unavailable.")
-            // Reflection keeps this reader tolerant of API signature differences across SDK stubs.
-            val stats = manager.javaClass.getMethod("getBatteryUsageStats").invoke(manager)
+            // Android exposes getBatteryUsageStats(BatteryUsageStatsQuery), not a no-argument method.
+            // Build the query reflectively so OEM/API differences fail gracefully rather than crashing.
+            val queryBuilderClass = Class.forName("android.os.BatteryUsageStatsQuery\$Builder")
+            val builder = queryBuilderClass.getDeclaredConstructor().newInstance()
+            queryBuilderClass.methods.firstOrNull { it.name == "includePowerModels" && it.parameterCount == 0 }
+                ?.invoke(builder)
+            val query = queryBuilderClass.getMethod("build").invoke(builder)
+                ?: return Triple(null, emptyList(), "Android could not create a battery usage query.")
+            val stats = manager.javaClass.methods.firstOrNull {
+                it.name == "getBatteryUsageStats" && it.parameterCount == 1 &&
+                    it.parameterTypes[0].name == "android.os.BatteryUsageStatsQuery"
+            }?.invoke(manager, query)
                 ?: return Triple(null, emptyList(), "Android returned no battery usage report.")
             val total = (stats.javaClass.methods.firstOrNull {
                 it.name == "getConsumedPower" && it.parameterCount == 0
@@ -70,9 +82,19 @@ class AdvancedBatteryStatsReader(context: Context) {
                 else AppEnergy(uid, appContext.packageManager.getPackagesForUid(uid)?.firstOrNull(), power)
             }.sortedWith(compareByDescending<AppEnergy> { app -> app.consumedMah })
             Triple(total?.takeIf { it.isFinite() && it >= 0.0 }, apps, null)
-        } catch (_: SecurityException) {
-            Triple(null, emptyList(), "Android denied BATTERY_STATS. Grant it with ADB if this OS permits it.")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            val cause = e.targetException
+            DiagnosticLogger.error("BatteryUsageStats query failed", cause)
+            if (cause is SecurityException) {
+                Triple(null, emptyList(), "Android restricts per-app power attribution on this build (BATTERY_STATS is privileged). Live battery readings and Usage Access data remain available.")
+            } else {
+                Triple(null, emptyList(), "Battery statistics unavailable: ${cause.javaClass.simpleName}")
+            }
+        } catch (e: SecurityException) {
+            DiagnosticLogger.error("BatteryUsageStats permission denied", e)
+            Triple(null, emptyList(), "Android restricts per-app power attribution on this build (BATTERY_STATS is privileged). Live battery readings and Usage Access data remain available.")
         } catch (e: Exception) {
+            DiagnosticLogger.error("BatteryUsageStats read failed", e)
             Triple(null, emptyList(), "Battery statistics unavailable: ${e.javaClass.simpleName}")
         }
     }
@@ -89,6 +111,7 @@ class AdvancedBatteryStatsReader(context: Context) {
                 .sortedByDescending { it.foregroundMillis }
             Pair(rows, if (rows.isEmpty()) "No usage data. Enable Usage Access for SysBattery." else null)
         } catch (e: RuntimeException) {
+            DiagnosticLogger.warn("UsageStats query failed", e)
             Pair(emptyList(), "Usage data unavailable: ${e.javaClass.simpleName}")
         }
     }

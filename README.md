@@ -5,8 +5,12 @@ SysBattery is an open-source Android battery telemetry monitor built with Kotlin
 ## Features
 
 - Material 3 dashboard with rounded translucent cards, light/dark themes, and a modern glass-inspired appearance.
+- At-a-glance battery history chart for the current app session, with minimum and maximum recorded charge labels. Raw telemetry samples are also persisted in a bounded local SQLite history (30-day retention); the chart has not yet been switched to query that database.
+- Settings access overview for optional Usage Access, Shizuku, and root diagnostics, with clear distinction between basic monitoring and advanced access.
 - Battery percentage, current, voltage, temperature, charging direction, and estimated discharge rate when supported by the device.
 - User-started foreground monitoring with an ongoing notification that updates with live battery information.
+- Drain estimates show a collection state until the first sample interval elapses; monitoring iterations log recoverable failures and retry instead of silently ending.
+- Background-settings shortcut falls back to general battery optimization and app-info pages when a vendor ROM does not expose the direct exemption screen.
 - Notification tap opens the dashboard; if Android permits the ongoing notification to be dismissed, a delete receiver requests restoration.
 - Remembers whether monitoring was enabled and attempts recovery after device reboot or app update.
 - Best-effort battery background guidance for ColorOS/OxygenOS, HyperOS, and One UI.
@@ -54,7 +58,23 @@ Root access is optional. Denying it does not affect standard battery monitoring.
 - BatteryManager current/charge-counter values can be unsupported or vendor-dependent. Sysfs access is best-effort and often restricted on retail devices.
 - The Shizuku button currently checks/request permission only; privileged Shizuku-backed sysfs reading is **not implemented yet**. Permission alone does not grant access to protected nodes.
 - Device-specific full-charge capacity, state-of-health, and cycle-count metrics are not yet implemented. PlusPlusBattery demonstrates useful OPlus-specific FCC/SOH estimates and cycle-count history, but these require device-specific data sources and careful validation before inclusion.
-- Per-app power attribution, deep-sleep accounting, and component power estimates are not implemented.
+- Per-app power attribution, reliable historical deep-sleep accounting, and component power estimates are not implemented. Raw timestamped battery samples are persisted locally, but no historical chart/query screen consumes that database yet.
 - The glass effect uses translucent surfaces and gradients rather than platform-specific backdrop blur, keeping the UI compatible across Android skins.
 
 See [docs/battery_logic_spec.md](docs/battery_logic_spec.md) for evidence tags and formula assumptions.
+
+## Battery measurement accuracy notes
+
+SysBattery reads standard battery properties through `BatteryManager` and `ACTION_BATTERY_CHANGED`, with read-only sysfs fallback where Android permits it. Current and power are device-dependent: the app validates plausible current values, normalizes the displayed sign using Android's charging status, and displays power from current × battery-cell voltage. The displayed drain rate uses a persisted, direction-specific rolling window; it needs enough observations before reporting a percentage-per-hour estimate.
+
+Cycle count and battery health are shown only when the Android battery broadcast reports them. Full-charge capacity and state-of-health values are vendor-specific on many phones and may require root-accessible files. SysBattery does not invent unavailable values or claim FKM-equivalent vendor algorithms. Screen-on/off time is measured from screen-state transitions observed while the service is alive; periods when Android stops the process cannot be reconstructed precisely without system usage/history access.
+
+On One UI and other OEM builds, an inaccessible sysfs node is a permission/device limitation, not a parser error. Compare reported numbers against Android Settings or a trusted battery diagnostic app on the same device before treating them as calibrated physical measurements.
+
+## Measurement sources and estimates
+
+- **Current and power:** Android's `BatteryManager.BATTERY_PROPERTY_CURRENT_NOW` is reported in microamps by the standard API. SysBattery converts this to mA and estimates battery power from the measured current magnitude and battery-cell voltage; current/power signs are displayed from Android's charging status. Vendor drivers can still expose missing or incorrect readings, so implausible values are filtered.
+- **Drain rate:** A persisted, direction-specific ten-minute sample window is used. A current-based rate is shown only after a minimum of three plausible samples spanning at least 45 seconds and when a measured/estimated full-charge capacity is available. Otherwise, the app falls back to a battery-level trend only after a three-minute window.
+- **Full-charge capacity and health:** Read-only sysfs `charge_full` and `charge_full_design` paths are used only if the app UID can read them. A separately labelled full-charge-capacity estimate is saved only when the phone reports 100% and current magnitude is at most 25 mA. An estimated health percentage requires a design capacity; if Android/vendor data does not expose it, enter the rated capacity under Monitor settings. It is an estimate, not a manufacturer-certified state-of-health result.
+- **Cycle count and health status:** Read from the Android battery broadcast on supported Android versions and from common readable sysfs paths where available. Devices that do not expose these values show “Not reported”; the app does not fabricate them.
+- **Screen-on/off statistics:** Time is accumulated at screen-state transitions while the monitor service is running, and drain is attributed according to measured screen-on/off duration between samples. If Android force-stops the process, the OEM kills it, or the device restarts, an ordinary app cannot reconstruct all unobserved intervals exactly. Privileged system BatteryStats history may provide better historical data where access is granted.

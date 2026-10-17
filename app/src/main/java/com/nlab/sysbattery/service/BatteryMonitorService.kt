@@ -1,5 +1,7 @@
 package com.nlab.sysbattery.service
 
+import com.nlab.sysbattery.diagnostics.DiagnosticLogger
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -11,6 +13,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.nlab.sysbattery.data.BatterySysfsReader
 import com.nlab.sysbattery.domain.BatteryStatsCalculator
@@ -26,21 +29,44 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
+import kotlin.math.max
 
 /** User-started foreground sampler with a compact, FKM-inspired telemetry notification. */
 class BatteryMonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var reader: BatterySysfsReader
-    private var previous: BatteryStatsCalculator.PreviousSample? = null
+    private lateinit var historyStore: com.nlab.sysbattery.data.BatteryHistoryStore
     private var previousLevel: Int? = null
-    private var previousTimestamp = 0L
+    // Monotonic clock baseline; wall-clock changes must not create negative/huge intervals.
+    private var previousSampleElapsedRealtime = 0L
+    // Kept only for the current service session; the first sample establishes a baseline.
+    private var previousChargeCounterMicroAmpHours: Long? = null
     private var monitorJob: Job? = null
     private var screenOnMillis = 0L
     private var screenOffMillis = 0L
-    private var activeDrainPercent = 0
-    private var idleDrainPercent = 0
+    private var screenOnSinceSampleMillis = 0L
+    private var screenOffSinceSampleMillis = 0L
+    // Fractional percentage-point loss avoids waiting for a full 1% level drop.
+    private var activeDrainPercent = 0.0
+    private var idleDrainPercent = 0.0
     private var activeDrainMillis = 0L
     private var idleDrainMillis = 0L
+    private var previousCharging: Boolean? = null
+    private var thresholdResetTriggered = false
+    private val screenStateLock = Any()
+    private var screenStateInteractive: Boolean? = null
+    private var screenStateSinceElapsed = 0L
+    private val rateSamples = mutableListOf<BatteryStatsCalculator.TimedSample>()
+    private var lastRateDirection: BatteryStatsCalculator.Direction? = null
+    private var screenReceiverRegistered = false
+    private val screenStateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_ON -> updateScreenState(true)
+                Intent.ACTION_SCREEN_OFF -> updateScreenState(false)
+            }
+        }
+    }
 
     data class MonitorState(
         val sample: BatterySysfsReader.Snapshot? = null,
@@ -56,6 +82,20 @@ class BatteryMonitorService : Service() {
         const val PREFS_NAME = "sysbattery"
         const val PREF_MONITOR_ENABLED = "monitor_enabled"
         private const val NOTIFICATION_ID = 4102
+
+        fun resetStoredCounters(context: Context) {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putLong("screen_on_ms", 0L)
+                .putLong("screen_off_ms", 0L)
+                .putFloat("active_drain_percent", 0f)
+                .putFloat("idle_drain_percent", 0f)
+                .putLong("active_drain_ms", 0L)
+                .putLong("idle_drain_ms", 0L)
+                .putBoolean("reset_counters_requested", true)
+                .putString("rate_samples_v1", "")
+                .putString("rate_direction_v1", "UNKNOWN")
+                .apply()
+        }
         private val mutableState = MutableStateFlow(MonitorState())
         val state: StateFlow<MonitorState> = mutableState.asStateFlow()
 
@@ -78,55 +118,325 @@ class BatteryMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         reader = BatterySysfsReader(applicationContext)
+        historyStore = com.nlab.sysbattery.data.BatteryHistoryStore(applicationContext)
         restoreCounters()
         createNotificationChannel()
+        restoreRateSamples()
+        registerScreenStateReceiver()
+        updateScreenState((getSystemService(POWER_SERVICE) as PowerManager).isInteractive, SystemClock.elapsedRealtime())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null && !getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_MONITOR_ENABLED, false)) {
+            DiagnosticLogger.info("Sticky restart ignored because monitor is disabled")
+            monitorJob?.cancel()
+            stopForeground(true)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             monitorJob?.cancel()
             stopForeground(true)
             stopSelf()
             return START_NOT_STICKY
         }
-        startForeground(NOTIFICATION_ID, buildNotification(null, null, null))
+        startForeground(NOTIFICATION_ID, buildNotification(null, null, batteryStatus()))
         val interval = (intent?.getLongExtra(EXTRA_INTERVAL_MS, DEFAULT_INTERVAL_MS) ?: DEFAULT_INTERVAL_MS)
             .coerceIn(2_000L, 60_000L)
         monitorJob?.cancel()
+        DiagnosticLogger.info("Battery monitor service starting")
         monitorJob = scope.launch {
             while (isActive) {
-                val sample = reader.readSnapshot()
-                val status = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                    ?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-                val charging = when (status) {
-                    BatteryManager.BATTERY_STATUS_CHARGING, BatteryManager.BATTERY_STATUS_FULL -> true
-                    BatteryManager.BATTERY_STATUS_DISCHARGING, BatteryManager.BATTERY_STATUS_NOT_CHARGING -> false
-                    else -> null
+                try {
+                    sampleAndPublish()
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    DiagnosticLogger.error("Battery monitor iteration failed; will retry", t)
                 }
-                val rates = BatteryStatsCalculator.calculate(previous, sample, charging)
-                val now = sample.timestampMillis
-                val elapsed = if (previousTimestamp > 0L) (now - previousTimestamp).coerceAtLeast(0L) else 0L
-                val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-                if (interactive) screenOnMillis += elapsed else screenOffMillis += elapsed
-                val oldLevel = previousLevel
-                val newLevel = sample.levelPercent
-                if (oldLevel != null && newLevel != null && newLevel < oldLevel && charging != true) {
-                    val drop = oldLevel - newLevel
-                    if (interactive) activeDrainPercent += drop else idleDrainPercent += drop
-                }
-                if (interactive) activeDrainMillis += elapsed else idleDrainMillis += elapsed
-
-                mutableState.value = MonitorState(sample, rates)
-                notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
-                previous = BatteryStatsCalculator.PreviousSample(sample.timestampMillis,
-                    sample.levelPercent, sample.currentMicroAmps, sample.chargeCounterMicroAmpHours)
-                previousLevel = newLevel
-                previousTimestamp = now
-                persistCounters()
                 delay(interval)
             }
         }
         return START_STICKY
+    }
+
+    private fun sampleAndPublish() {
+        val sample = reader.readSnapshot()
+        val charging = batteryStatus()
+        val preferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (preferences.getBoolean("reset_counters_requested", false)) {
+            resetCounters()
+            preferences.edit().putBoolean("reset_counters_requested", false).apply()
+        }
+
+        val previousDirection = previousCharging
+        if (previousDirection == false && charging == true &&
+            preferences.getBoolean("reset_on_plug", true)) {
+            resetCounters()
+            thresholdResetTriggered = false
+            rateSamples.clear()
+        }
+        if (charging != null) previousCharging = charging
+
+        val direction = when (charging) {
+            true -> BatteryStatsCalculator.Direction.CHARGING
+            false -> BatteryStatsCalculator.Direction.DISCHARGING
+            null -> BatteryStatsCalculator.Direction.UNKNOWN
+        }
+        if (lastRateDirection != null && direction != BatteryStatsCalculator.Direction.UNKNOWN &&
+            lastRateDirection != direction) rateSamples.clear()
+        if (direction != BatteryStatsCalculator.Direction.UNKNOWN) lastRateDirection = direction
+        rateSamples.add(BatteryStatsCalculator.TimedSample(
+            sample.timestampMillis, sample.levelPercent, sample.currentMicroAmps,
+            sample.chargeCounterMicroAmpHours
+        ))
+        trimRateSamples(sample.timestampMillis)
+        persistRateSamples()
+        val rates = BatteryStatsCalculator.calculateWindowed(rateSamples, sample, charging)
+
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val elapsed = if (previousSampleElapsedRealtime > 0L) {
+            (nowElapsed - previousSampleElapsedRealtime).coerceAtLeast(0L)
+        } else 0L
+        val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
+        runCatching {
+            historyStore.record(
+                timestampMillis = sample.timestampMillis,
+                currentMicroAmps = sample.currentMicroAmps,
+                levelPercent = sample.levelPercent,
+                voltageMilliVolts = sample.voltageMilliVolts,
+                temperatureTenthsCelsius = sample.temperatureTenthsCelsius,
+                isPlugged = charging == true,
+                isScreenOn = interactive,
+                batteryStatus = sample.status,
+                chargeCounterMicroAmpHours = sample.chargeCounterMicroAmpHours,
+                fullChargeCapacityMicroAmpHours = sample.fullChargeCapacityMicroAmpHours
+                    ?: sample.estimatedFullChargeCapacityMicroAmpHours
+                    ?: sample.designCapacityMicroAmpHours,
+                source = sample.source
+            )
+        }.onFailure { DiagnosticLogger.error("Unable to persist battery history sample", it) }
+        val (onElapsed, offElapsed) = updateAndMeasureScreenTime(interactive, nowElapsed)
+        val trackedElapsed = onElapsed + offElapsed
+
+        val oldLevel = previousLevel
+        val newLevel = sample.levelPercent
+        val resetAtThreshold = preferences.getBoolean("reset_at_threshold", true)
+        val threshold = preferences.getInt("reset_threshold_percent", 90).coerceIn(50, 100)
+        if (charging != true || newLevel == null || newLevel < threshold) {
+            thresholdResetTriggered = false
+        } else if (resetAtThreshold && !thresholdResetTriggered) {
+            resetCounters()
+            thresholdResetTriggered = true
+            rateSamples.clear()
+        }
+
+        if (charging == false && elapsed > 0L) {
+            /*
+             * Attribute actual remaining-charge-counter loss to the screen state measured
+             * during this sampling interval. The rolling current-derived rate can include
+             * both screen-on and screen-off samples, so using it for each state separately
+             * creates a misleading split. Prefer the counter delta when both endpoints and
+             * a plausible full-capacity estimate are available.
+             */
+            val previousCounter = previousChargeCounterMicroAmpHours
+            val currentCounter = sample.chargeCounterMicroAmpHours
+            val capacityUah = (sample.fullChargeCapacityMicroAmpHours
+                ?: sample.estimatedFullChargeCapacityMicroAmpHours
+                ?: sample.designCapacityMicroAmpHours)
+                ?.takeIf { it in 100_000L..30_000_000L }
+            val counterDeltaUah = if (previousCounter != null && currentCounter != null) {
+                previousCounter - currentCounter
+            } else null
+            val counterBasedLossPercent = if (
+                counterDeltaUah != null && counterDeltaUah in 1L..100_000L &&
+                capacityUah != null && trackedElapsed > 0L
+            ) {
+                (counterDeltaUah.toDouble() / capacityUah.toDouble() * 100.0)
+                    .takeIf { it.isFinite() && it in 0.0..20.0 }
+            } else null
+
+            val intervalLossPercent = counterBasedLossPercent ?: run {
+                // Integrate the live current over this interval. This avoids waiting for
+                // a rounded 1% battery-level change and does not require a rolling window
+                // to have enough samples before the counters begin moving.
+                val currentMa = sample.currentMicroAmps?.let { kotlin.math.abs(it) / 1_000.0 }
+                    ?.takeIf { it.isFinite() && it in 1.0..15_000.0 }
+                val capacityMah = capacityUah?.div(1_000.0)?.takeIf { it > 0.0 }
+                val currentLoss = if (currentMa != null && capacityMah != null && elapsed > 0L) {
+                    currentMa * (elapsed / 3_600_000.0) / capacityMah * 100.0
+                } else null
+                currentLoss?.takeIf { it.isFinite() && it in 0.0..20.0 }
+                    ?: rates.batteryPercentPerHour?.takeIf { it.isFinite() && it in 0.0..500.0 }
+                        ?.let { it * elapsed / 3_600_000.0 }
+                    ?: if (oldLevel != null && newLevel != null && oldLevel > newLevel &&
+                        oldLevel - newLevel <= 10) (oldLevel - newLevel).toDouble() else null
+            }
+            if (intervalLossPercent != null && trackedElapsed > 0L) {
+                activeDrainPercent += intervalLossPercent * onElapsed / trackedElapsed
+                idleDrainPercent += intervalLossPercent * offElapsed / trackedElapsed
+            }
+            activeDrainMillis += onElapsed
+            idleDrainMillis += offElapsed
+        }
+        // Advance the baseline even while charging, so a later discharge doesn't include charge.
+        previousChargeCounterMicroAmpHours = sample.chargeCounterMicroAmpHours
+
+        mutableState.value = MonitorState(sample, rates)
+        runCatching {
+            notificationManager().notify(NOTIFICATION_ID, buildNotification(sample, rates, charging))
+        }.onFailure { DiagnosticLogger.error("Battery notification update failed", it) }
+        previousLevel = newLevel
+        previousSampleElapsedRealtime = nowElapsed
+        persistCounters()
+    }
+
+    private fun registerScreenStateReceiver() {
+        if (screenReceiverRegistered) return
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(screenStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(screenStateReceiver, filter)
+            }
+            screenReceiverRegistered = true
+        } catch (t: RuntimeException) {
+            DiagnosticLogger.error("Unable to register screen-state receiver", t)
+        }
+    }
+
+    private fun updateScreenState(interactive: Boolean, now: Long = SystemClock.elapsedRealtime()) {
+        synchronized(screenStateLock) { updateScreenStateLocked(interactive, now) }
+    }
+
+    private fun updateAndMeasureScreenTime(interactive: Boolean, now: Long): Pair<Long, Long> =
+        synchronized(screenStateLock) {
+            when (screenStateInteractive) {
+                null -> {
+                    screenStateInteractive = interactive
+                    screenStateSinceElapsed = now
+                }
+                interactive -> accumulateScreenTimeLocked(now)
+                else -> updateScreenStateLocked(interactive, now)
+            }
+            val onDelta = screenOnSinceSampleMillis
+            val offDelta = screenOffSinceSampleMillis
+            screenOnSinceSampleMillis = 0L
+            screenOffSinceSampleMillis = 0L
+            Pair(onDelta, offDelta)
+        }
+
+    private fun updateScreenStateLocked(interactive: Boolean, now: Long) {
+        accumulateScreenTimeLocked(now)
+        screenStateInteractive = interactive
+        screenStateSinceElapsed = now
+    }
+
+    private fun accumulateScreenTime(now: Long = SystemClock.elapsedRealtime()) {
+        synchronized(screenStateLock) { accumulateScreenTimeLocked(now) }
+    }
+
+    private fun accumulateScreenTimeLocked(now: Long) {
+        val since = screenStateSinceElapsed
+        if (since <= 0L || now <= since) {
+            screenStateSinceElapsed = now
+            return
+        }
+        val elapsed = now - since
+        when (screenStateInteractive) {
+            true -> {
+                screenOnMillis += elapsed
+                screenOnSinceSampleMillis += elapsed
+            }
+            false -> {
+                screenOffMillis += elapsed
+                screenOffSinceSampleMillis += elapsed
+            }
+            null -> Unit
+        }
+        screenStateSinceElapsed = now
+    }
+
+    private fun trimRateSamples(now: Long) {
+        val cutoff = now - 10 * 60 * 1000L
+        rateSamples.removeAll { it.timestampMillis < cutoff || it.timestampMillis > now }
+        while (rateSamples.size > 60) rateSamples.removeAt(0)
+        val compacted = rateSamples.fold(mutableListOf<BatteryStatsCalculator.TimedSample>()) { out, item ->
+            if (out.isEmpty() || item.timestampMillis - out.last().timestampMillis >= 15_000L) out.add(item)
+            out
+        }
+        rateSamples.clear()
+        rateSamples.addAll(compacted)
+    }
+
+    private fun persistRateSamples() {
+        val encoded = rateSamples.joinToString(";") { sample ->
+            listOf(sample.timestampMillis.toString(), sample.levelPercent?.toString() ?: "x",
+                sample.currentMicroAmps?.toString() ?: "x", sample.chargeCounterMicroAmpHours?.toString() ?: "x")
+                .joinToString(",")
+        }
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString("rate_samples_v1", encoded)
+            .putString("rate_direction_v1", lastRateDirection?.name ?: "UNKNOWN")
+            .apply()
+    }
+
+    private fun restoreRateSamples() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        lastRateDirection = runCatching {
+            BatteryStatsCalculator.Direction.valueOf(prefs.getString("rate_direction_v1", "UNKNOWN") ?: "UNKNOWN")
+        }.getOrDefault(BatteryStatsCalculator.Direction.UNKNOWN)
+        val parsed = prefs.getString("rate_samples_v1", "").orEmpty().split(";").mapNotNull { row ->
+            val fields = row.split(",")
+            if (fields.size != 4) return@mapNotNull null
+            val timestamp = fields[0].toLongOrNull() ?: return@mapNotNull null
+            val level = fields[1].takeIf { it != "x" }?.toIntOrNull()
+            val current = fields[2].takeIf { it != "x" }?.toLongOrNull()
+            val charge = fields[3].takeIf { it != "x" }?.toLongOrNull()
+            BatteryStatsCalculator.TimedSample(timestamp, level, current, charge)
+        }
+        rateSamples.clear()
+        rateSamples.addAll(parsed)
+        trimRateSamples(System.currentTimeMillis())
+    }
+
+    private fun resetCounters() {
+        synchronized(screenStateLock) {
+            val now = SystemClock.elapsedRealtime()
+            accumulateScreenTimeLocked(now)
+            screenOnMillis = 0L
+            screenOffMillis = 0L
+            screenOnSinceSampleMillis = 0L
+            screenOffSinceSampleMillis = 0L
+            screenStateSinceElapsed = now
+        }
+        activeDrainPercent = 0.0
+        idleDrainPercent = 0.0
+        activeDrainMillis = 0L
+        idleDrainMillis = 0L
+        rateSamples.clear()
+        persistRateSamples()
+        persistCounters()
+    }
+
+    /** Read sticky battery status instead of inferring plug state from current polarity. */
+    private fun batteryStatus(): Boolean? = try {
+        val status = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+            ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+        when (status) {
+            BatteryManager.BATTERY_STATUS_CHARGING, BatteryManager.BATTERY_STATUS_FULL -> true
+            BatteryManager.BATTERY_STATUS_DISCHARGING, BatteryManager.BATTERY_STATUS_NOT_CHARGING -> false
+            else -> null
+        }
+    } catch (t: RuntimeException) {
+        DiagnosticLogger.error("Unable to read battery status", t)
+        null
     }
 
     private fun notificationManager() = getSystemService(NotificationManager::class.java)
@@ -147,33 +457,77 @@ class BatteryMonitorService : Service() {
         rates: BatteryStatsCalculator.Rates?,
         charging: Boolean?
     ): Notification {
-        val level = sample?.levelPercent?.let { "$it%" } ?: "Battery level unavailable"
-        val temperature = sample?.temperatureTenthsCelsius?.let { String.format(Locale.getDefault(), "%.1f°C", it / 10.0) }
-        val current = rates?.currentMilliAmpsMagnitude?.let { String.format(Locale.getDefault(), "%.0f mA", it) }
+        val preferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val showBatteryPercentage = preferences.getBoolean("show_battery_icon", true)
+        val showChargingPower = preferences.getBoolean("show_charging_power", true)
+        val temperatureUnit = preferences.getString("temperature_unit", "Celsius (°C)") ?: "Celsius (°C)"
+        val level = if (showBatteryPercentage) sample?.levelPercent?.let { "$it%" } else null
+        val temperature = sample?.temperatureTenthsCelsius?.let {
+            val celsius = it / 10.0
+            val value = if (temperatureUnit == "Fahrenheit (°F)") celsius * 9.0 / 5.0 + 32.0 else celsius
+            val unit = if (temperatureUnit == "Fahrenheit (°F)") "°F" else "°C"
+            String.format(Locale.getDefault(), "%.1f%s", value, unit)
+        }
+        // Prefer the smoothed rate estimate, but don't hide the live current when
+        // the rate calculator has not collected enough samples yet.
+        val current = if (showChargingPower) {
+            rates?.currentMilliAmpsMagnitude
+                ?: sample?.currentMilliAmpsSigned?.let { kotlin.math.abs(it) }
+                    ?.takeIf { it.isFinite() && it in 1.0..20_000.0 }
+        } else null
         val mode = when (charging) {
             true -> "Charging"
             false -> "Discharging"
             null -> "Battery status unavailable"
         }
+        // Match the compact Franco Kernel Manager telemetry layout: one headline,
+        // followed by drain, screen-state and sleep-state lines.
         val summary = buildString {
-            append(level)
-            if (temperature != null) append(" · ").append(temperature)
-            append(" · ").append(mode)
-            if (current != null) append(" ").append(current)
+            if (level != null) append(level).append(" · ")
+            if (temperature != null) append(temperature).append(" · ")
+            append(mode)
+            if (current != null && current.isFinite()) {
+                append(" ").append(String.format(Locale.getDefault(), "%.0f mA", current))
+            }
         }
         val activeRate = ratePerHour(activeDrainPercent, activeDrainMillis)
         val idleRate = ratePerHour(idleDrainPercent, idleDrainMillis)
-        val observedMillis = (screenOnMillis + screenOffMillis).coerceAtLeast(0L)
-        val screenOnPercent = if (observedMillis > 0L) screenOnMillis * 100.0 / observedMillis else 0.0
-        val screenOffPercent = if (observedMillis > 0L) screenOffMillis * 100.0 / observedMillis else 0.0
-        val details = listOf(
+        val idleWarningEnabled = preferences.getBoolean("idle_warning", true)
+        val idleWarningLimit = preferences.getInt("idle_warning_percent", 5).coerceIn(1, 20)
+        val idleWarningText = if (idleWarningEnabled && idleRate != "--/hr" && idleRate != "Collecting…" &&
+            idleRate.removeSuffix("%/hr").toDoubleOrNull()?.let { it > idleWarningLimit } == true) {
+            "High idle drain detected: $idleRate (limit " + idleWarningLimit + "%/h)"
+        } else null
+        // Read accumulated totals without consuming the sampling deltas.
+        // Notification refreshes can occur more often than telemetry sampling.
+        val (shownOnMillis, shownOffMillis) = synchronized(screenStateLock) {
+            val now = SystemClock.elapsedRealtime()
+            val extra = (now - screenStateSinceElapsed).coerceAtLeast(0L)
+            when (screenStateInteractive) {
+                true -> Pair(screenOnMillis + extra, screenOffMillis)
+                false -> Pair(screenOnMillis, screenOffMillis + extra)
+                null -> Pair(screenOnMillis, screenOffMillis)
+            }
+        }
+        val activeLoss = activeDrainPercent.coerceAtLeast(0.0)
+        val idleLoss = idleDrainPercent.coerceAtLeast(0.0)
+        val elapsedRealtime = SystemClock.elapsedRealtime().coerceAtLeast(0L)
+        val uptime = SystemClock.uptimeMillis().coerceIn(0L, elapsedRealtime)
+        val awakeMillis = uptime
+        val deepSleepMillis = (elapsedRealtime - uptime).coerceAtLeast(0L)
+        val sinceBootMillis = (awakeMillis + deepSleepMillis).coerceAtLeast(1L)
+        val deepSleepShare = deepSleepMillis * 100.0 / sinceBootMillis
+        val awakeShare = awakeMillis * 100.0 / sinceBootMillis
+        val details = listOfNotNull(
+            idleWarningText,
             "Active drain: $activeRate · idle drain: $idleRate",
-            "Screen on: ${formatDuration(screenOnMillis)} (${String.format(Locale.getDefault(), "%.1f", screenOnPercent)}%)",
-            "Screen off: ${formatDuration(screenOffMillis)} (${String.format(Locale.getDefault(), "%.1f", screenOffPercent)}%)",
-            "Awake/deep sleep: unavailable from screen state alone"
+            "Screen on: " + formatDuration(shownOnMillis) + " (" + String.format(Locale.getDefault(), "%.0f", activeLoss) + "%)",
+            "Screen off: " + formatDuration(shownOffMillis) + " (" + String.format(Locale.getDefault(), "%.0f", idleLoss) + "%)",
+            "Deep sleep: " + formatDuration(deepSleepMillis) + " (" + String.format(Locale.getDefault(), "%.2f", deepSleepShare) + "%)",
+            "Awake: " + formatDuration(awakeMillis) + " (" + String.format(Locale.getDefault(), "%.2f", awakeShare) + "%)"
         ).joinToString("\n")
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
+            .setSmallIcon(com.nlab.sysbattery.R.drawable.ic_sysbattery_status)
             .setContentTitle("SysBattery")
             .setContentText(summary)
             .setContentIntent(PendingIntent.getActivity(
@@ -190,7 +544,6 @@ class BatteryMonitorService : Service() {
             ))
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$summary\n$details"))
-            .setSubText("Battery monitor")
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setShowWhen(false)
@@ -203,27 +556,33 @@ class BatteryMonitorService : Service() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         screenOnMillis = prefs.getLong("screen_on_ms", 0L)
         screenOffMillis = prefs.getLong("screen_off_ms", 0L)
-        activeDrainPercent = prefs.getInt("active_drain_percent", 0)
-        idleDrainPercent = prefs.getInt("idle_drain_percent", 0)
+        activeDrainPercent = prefs.getFloat("active_drain_percent", prefs.getInt("active_drain_percent", 0).toFloat()).toDouble()
+        idleDrainPercent = prefs.getFloat("idle_drain_percent", prefs.getInt("idle_drain_percent", 0).toFloat()).toDouble()
         activeDrainMillis = prefs.getLong("active_drain_ms", 0L)
         idleDrainMillis = prefs.getLong("idle_drain_ms", 0L)
     }
 
     private fun persistCounters() {
+        val screenTotals = synchronized(screenStateLock) { Pair(screenOnMillis, screenOffMillis) }
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-            .putLong("screen_on_ms", screenOnMillis)
-            .putLong("screen_off_ms", screenOffMillis)
-            .putInt("active_drain_percent", activeDrainPercent)
-            .putInt("idle_drain_percent", idleDrainPercent)
+            .putLong("screen_on_ms", screenTotals.first)
+            .putLong("screen_off_ms", screenTotals.second)
+            .putFloat("active_drain_percent", activeDrainPercent.toFloat())
+            .putFloat("idle_drain_percent", idleDrainPercent.toFloat())
             .putLong("active_drain_ms", activeDrainMillis)
             .putLong("idle_drain_ms", idleDrainMillis)
             .apply()
     }
 
-    /** Rates are based on whole-percent level drops and may remain -- until a drop is observed. */
-    private fun ratePerHour(drainPercent: Int, durationMillis: Long): String {
-        if (durationMillis <= 0L || drainPercent == 0) return "--/hr"
-        val rate = drainPercent * 3_600_000.0 / durationMillis
+    /** Report zero after observation with no level loss; show collecting until elapsed time exists. */
+    private fun ratePerHour(drainPercent: Double, durationMillis: Long): String {
+        if (durationMillis <= 0L) return "Collecting…"
+        if (!drainPercent.isFinite() || drainPercent < 0.0) return "—"
+        if (drainPercent == 0.0) return "Collecting…"
+        val rate = max(0.0, drainPercent) * 3_600_000.0 / durationMillis
+        if (!rate.isFinite()) return "—"
+        // Do not round a tiny non-zero estimate down to a misleading 0.00%/hr.
+        if (rate < 0.005) return "<0.01%/hr"
         return String.format(Locale.getDefault(), "%.2f%%/hr", rate)
     }
 
@@ -232,11 +591,20 @@ class BatteryMonitorService : Service() {
         val hours = totalSeconds / 3600L
         val minutes = (totalSeconds % 3600L) / 60L
         val seconds = totalSeconds % 60L
-        return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m ${seconds}s"
+        return if (hours > 0) "${hours}h ${minutes}m ${seconds}s" else "${minutes}m ${seconds}s"
     }
 
     override fun onDestroy() {
+        DiagnosticLogger.info("Battery monitor service destroyed")
         monitorJob?.cancel()
+        if (screenReceiverRegistered) {
+            runCatching { unregisterReceiver(screenStateReceiver) }
+            screenReceiverRegistered = false
+        }
+        accumulateScreenTime()
+        persistCounters()
+        persistRateSamples()
+        runCatching { historyStore.close() }
         scope.cancel()
         super.onDestroy()
     }
